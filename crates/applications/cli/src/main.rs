@@ -431,14 +431,13 @@ async fn run_storage(action: StorageAction) -> Result<()> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = action;
-        anyhow::bail!(
-            "storage operations are only supported on macOS (APFS) at this time"
-        )
+        use gfs_storage_file::FileStorage;
+
+        let storage = FileStorage::new();
+        dispatch_storage(&storage, action).await
     }
 }
 
-#[cfg(target_os = "macos")]
 async fn dispatch_storage(
     storage: &impl gfs_domain::ports::storage::StoragePort,
     action: StorageAction,
