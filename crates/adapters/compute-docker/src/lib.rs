@@ -81,10 +81,7 @@ impl Compute for DockerCompute {
             .env
             .iter()
             .map(|e| {
-                let value = e
-                    .default
-                    .as_deref()
-                    .unwrap_or("");
+                let value = e.default.as_deref().unwrap_or("");
                 format!("{}={}", e.name, value)
             })
             .collect();
@@ -111,11 +108,7 @@ impl Compute for DockerCompute {
         }
 
         let host_config = bollard::service::HostConfig {
-            binds: if binds.is_empty() {
-                None
-            } else {
-                Some(binds)
-            },
+            binds: if binds.is_empty() { None } else { Some(binds) },
             port_bindings: Some(port_bindings),
             ..Default::default()
         };
@@ -157,7 +150,10 @@ impl Compute for DockerCompute {
     #[instrument(skip(self, _options))]
     async fn start(&self, id: &InstanceId, _options: StartOptions) -> Result<InstanceStatus> {
         self.docker
-            .start_container(&id.0, None::<bollard::query_parameters::StartContainerOptions>)
+            .start_container(
+                &id.0,
+                None::<bollard::query_parameters::StartContainerOptions>,
+            )
             .await
             .map_err(|e| classify(&id.0, e))?;
         self.status(id).await
@@ -314,12 +310,10 @@ impl Compute for DockerCompute {
                 .await
                 .map_err(|e| classify(&id.0, e))?;
             if inspect.exit_code != Some(0) {
-                return Err(gfs_domain::ports::compute::ComputeError::Internal(
-                    format!(
-                        "prepare_for_snapshot command failed (exit {:?}): {}",
-                        inspect.exit_code, cmd
-                    ),
-                ));
+                return Err(gfs_domain::ports::compute::ComputeError::Internal(format!(
+                    "prepare_for_snapshot command failed (exit {:?}): {}",
+                    inspect.exit_code, cmd
+                )));
             }
         }
         Ok(())
@@ -327,10 +321,7 @@ impl Compute for DockerCompute {
 
     #[instrument(skip(self))]
     async fn logs(&self, id: &InstanceId, options: LogsOptions) -> Result<Vec<LogEntry>> {
-        let since_secs = options
-            .since
-            .map(|dt| dt.timestamp() as i32)
-            .unwrap_or(0);
+        let since_secs = options.since.map(|dt| dt.timestamp() as i32).unwrap_or(0);
 
         let tail = options
             .tail
@@ -451,10 +442,9 @@ impl DockerCompute {
     /// Wait until the container has reached a not-running state (e.g. exited).
     /// Use after stop_container so the snapshot or remove happens only once the container is fully stopped.
     async fn wait_until_not_running(&self, id: &InstanceId) -> Result<()> {
-        let wait_opts =
-            bollard::query_parameters::WaitContainerOptionsBuilder::default()
-                .condition("not-running")
-                .build();
+        let wait_opts = bollard::query_parameters::WaitContainerOptionsBuilder::default()
+            .condition("not-running")
+            .build();
         let mut stream = self.docker.wait_container(&id.0, Some(wait_opts));
         if let Some(item) = stream.next().await {
             item.map_err(|e| classify(&id.0, e))?;

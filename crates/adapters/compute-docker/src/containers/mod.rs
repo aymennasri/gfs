@@ -4,9 +4,7 @@
 pub mod mysql;
 pub mod postgresql;
 
-use gfs_domain::ports::database_provider::{
-    DatabaseProviderRegistry, Result,
-};
+use gfs_domain::ports::database_provider::{DatabaseProviderRegistry, Result};
 
 /// Registers all built-in database providers (e.g. postgres, mysql) into `registry`.
 /// Call this before looking up definitions by provider name.

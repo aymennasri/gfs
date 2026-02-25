@@ -145,7 +145,10 @@ fn checkout_commit_hash_detaches_head_and_switches_workspace_content() {
     assert!(ok2, "second commit should succeed; stderr: {stderr2}");
 
     let (checkout_ok, stdout, stderr) = gfs_checkout(repo_path, &hash1);
-    assert!(checkout_ok, "gfs checkout <hash1> should succeed; stderr: {stderr}");
+    assert!(
+        checkout_ok,
+        "gfs checkout <hash1> should succeed; stderr: {stderr}"
+    );
     assert!(
         stdout.contains("Switched to") && stdout.contains(&hash1[..7]),
         "stdout should show switched message; got: {stdout}"
@@ -157,7 +160,8 @@ fn checkout_commit_hash_detaches_head_and_switches_workspace_content() {
     let workspace_path = read_workspace_path(repo_path);
     let short_hash1 = &hash1[..12.min(hash1.len())];
     assert!(
-        workspace_path.to_string_lossy().contains("detached") && workspace_path.to_string_lossy().contains(short_hash1),
+        workspace_path.to_string_lossy().contains("detached")
+            && workspace_path.to_string_lossy().contains(short_hash1),
         "WORKSPACE should point at workspaces/detached/<short_hash>/data; got: {}",
         workspace_path.display()
     );
@@ -188,7 +192,10 @@ fn checkout_branch_main_updates_workspace_to_tip_content() {
     assert!(ok2);
 
     let (checkout_ok, _stdout, stderr) = gfs_checkout(repo_path, "main");
-    assert!(checkout_ok, "gfs checkout main should succeed; stderr: {stderr}");
+    assert!(
+        checkout_ok,
+        "gfs checkout main should succeed; stderr: {stderr}"
+    );
 
     let head = read_head(repo_path);
     assert_eq!(head, "ref: refs/heads/main", "HEAD should point at main");

@@ -14,8 +14,7 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 /// Call this **once**, as the very first statement of `main()`, before any
 /// other crate initialisation.
 pub fn init() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     match std::env::var("RUST_LOG_FORMAT").as_deref() {
         Ok("json") => {

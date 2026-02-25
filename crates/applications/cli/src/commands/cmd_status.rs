@@ -78,12 +78,7 @@ fn print_table(s: &StatusResponse, repo_path: &Path) {
             c.provider,
             width = LABEL_WIDTH
         );
-        println!(
-            "  {:<width$} {}",
-            "Version",
-            c.version,
-            width = LABEL_WIDTH
-        );
+        println!("  {:<width$} {}", "Version", c.version, width = LABEL_WIDTH);
         println!(
             "  {:<width$} {} {}",
             "Status",

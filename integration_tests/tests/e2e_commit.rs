@@ -103,12 +103,8 @@ struct ContainerCleanupGuard(String);
 
 impl Drop for ContainerCleanupGuard {
     fn drop(&mut self) {
-        let _ = Command::new("docker")
-            .args(["stop", &self.0])
-            .output();
-        let _ = Command::new("docker")
-            .args(["rm", "-f", &self.0])
-            .output();
+        let _ = Command::new("docker").args(["stop", &self.0]).output();
+        let _ = Command::new("docker").args(["rm", "-f", &self.0]).output();
     }
 }
 
@@ -206,7 +202,10 @@ fn init_creates_workspace_file_pointing_to_initial_data_dir() {
     assert!(gfs_init(repo_path), "gfs init should succeed");
 
     let workspace_file = repo_path.join(".gfs/WORKSPACE");
-    assert!(workspace_file.exists(), ".gfs/WORKSPACE should be created by init");
+    assert!(
+        workspace_file.exists(),
+        ".gfs/WORKSPACE should be created by init"
+    );
 
     let recorded = fs::read_to_string(&workspace_file).unwrap();
     assert_eq!(
@@ -226,7 +225,10 @@ fn commit_creates_snapshot_folder_with_copied_files() {
     assert!(gfs_init(repo_path), "gfs init should succeed");
 
     let data_dir = workspace_data_dir(repo_path);
-    assert!(data_dir.exists(), "workspace data dir must exist after init");
+    assert!(
+        data_dir.exists(),
+        "workspace data dir must exist after init"
+    );
     fs::write(data_dir.join("pg_version"), "16\n").unwrap();
     fs::write(data_dir.join("schema.sql"), "CREATE TABLE test (id INT);\n").unwrap();
 
@@ -253,7 +255,10 @@ fn commit_creates_snapshot_folder_with_copied_files() {
     assert_eq!(commit.snapshot_hash.len(), 64);
 
     let snapshot_path = snapshot_dir(repo_path, &commit.snapshot_hash);
-    assert!(snapshot_path.exists(), "snapshot dir should exist: {snapshot_path:?}");
+    assert!(
+        snapshot_path.exists(),
+        "snapshot dir should exist: {snapshot_path:?}"
+    );
     assert!(snapshot_path.is_dir());
 
     assert_eq!(
@@ -323,7 +328,10 @@ fn log_respects_max_count() {
     assert!(log_ok, "gfs log should succeed; stderr: {log_stderr}");
 
     let commit_blocks = log_stdout.matches("commit ").count();
-    assert_eq!(commit_blocks, 1, "log -n 1 should show exactly one commit; got: {log_stdout}");
+    assert_eq!(
+        commit_blocks, 1,
+        "log -n 1 should show exactly one commit; got: {log_stdout}"
+    );
     assert!(
         log_stdout.contains("second"),
         "log -n 1 should show most recent commit; got: {log_stdout}"
@@ -355,7 +363,11 @@ fn two_commits_produce_distinct_snapshot_folders_with_files() {
     let (d2, f2) = hash2.split_at(2);
     let obj2_bytes = fs::read(repo_path.join(".gfs/objects").join(d2).join(f2)).unwrap();
     let commit2: Commit = serde_json::from_slice(&obj2_bytes).unwrap();
-    let hash1 = commit2.parents.as_ref().and_then(|p| p.first().cloned()).expect("second commit has parent");
+    let hash1 = commit2
+        .parents
+        .as_ref()
+        .and_then(|p| p.first().cloned())
+        .expect("second commit has parent");
     assert_ne!(hash1, hash2);
 
     let snap1 = read_snapshot_hash(repo_path, &hash1);
@@ -367,8 +379,14 @@ fn two_commits_produce_distinct_snapshot_folders_with_files() {
     assert!(snap1_path.exists(), "first snapshot dir: {snap1_path:?}");
     assert!(snap2_path.exists(), "second snapshot dir: {snap2_path:?}");
 
-    assert_eq!(fs::read_to_string(snap1_path.join("seed.txt")).unwrap(), "data v1");
-    assert_eq!(fs::read_to_string(snap2_path.join("seed.txt")).unwrap(), "data v2");
+    assert_eq!(
+        fs::read_to_string(snap1_path.join("seed.txt")).unwrap(),
+        "data v1"
+    );
+    assert_eq!(
+        fs::read_to_string(snap2_path.join("seed.txt")).unwrap(),
+        "data v2"
+    );
 
     let workspace_recorded = fs::read_to_string(repo_path.join(".gfs/WORKSPACE")).unwrap();
     assert_eq!(
@@ -397,7 +415,10 @@ fn commit_with_missing_mount_point_source_fails_gracefully() {
 
     assert!(!ok, "gfs commit against non-existent source should fail");
     assert!(
-        stderr.contains("storage") || stderr.contains("cp") || stderr.contains("failed") || stderr.contains("error"),
+        stderr.contains("storage")
+            || stderr.contains("cp")
+            || stderr.contains("failed")
+            || stderr.contains("error"),
         "stderr should mention failure; got: {stderr}"
     );
 }
@@ -435,7 +456,10 @@ fn commit_with_real_database_snapshots_workspace() {
     let obj_bytes = fs::read(repo_path.join(".gfs/objects").join(obj_dir).join(obj_file)).unwrap();
     let commit: Commit = serde_json::from_slice(&obj_bytes).expect("valid JSON commit object");
     let snapshot_path = snapshot_dir(repo_path, &commit.snapshot_hash);
-    assert!(snapshot_path.exists(), "snapshot dir should exist: {snapshot_path:?}");
+    assert!(
+        snapshot_path.exists(),
+        "snapshot dir should exist: {snapshot_path:?}"
+    );
 
     // Snapshot should contain Postgres data dir contents (e.g. base/, global/, or postgresql.conf)
     let has_pg_data = ["base", "global", "pg_wal", "postgresql.conf"]
@@ -444,6 +468,9 @@ fn commit_with_real_database_snapshots_workspace() {
     assert!(
         has_pg_data,
         "snapshot should contain Postgres data; listing: {:?}",
-        fs::read_dir(&snapshot_path).unwrap().collect::<Result<Vec<_>, _>>().unwrap()
+        fs::read_dir(&snapshot_path)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
     );
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gfs_domain::ports::compute::{ComputeDefinition, EnvVar, PortMapping};
 use gfs_domain::ports::database_provider::{
     ConnectionParams, DatabaseProvider, DatabaseProviderArg, DatabaseProviderRegistry,
-    ProviderError, Result, SupportedFeature, SIGTERM,
+    ProviderError, Result, SIGTERM, SupportedFeature,
 };
 
 const NAME: &str = "mysql";
@@ -299,7 +299,10 @@ mod tests {
         let provider = MysqlProvider::new();
         let args = provider.default_args();
         assert!(!args.is_empty());
-        assert_eq!(args.first().map(|a| a.name.as_str()), Some("--skip-name-resolve"));
+        assert_eq!(
+            args.first().map(|a| a.name.as_str()),
+            Some("--skip-name-resolve")
+        );
         let def = provider.definition();
         assert_eq!(def.args.len(), args.len());
         assert_eq!(def.args.first(), Some(&"--skip-name-resolve".to_string()));

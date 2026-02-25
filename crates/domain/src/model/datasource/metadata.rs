@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::column_privileges::ColumnPrivileges;
 use super::columns::Column;
 use super::config::Config;
 use super::db_types::DbType;
@@ -15,7 +16,6 @@ use super::publications::Publication;
 use super::roles::Role;
 use super::schema::Schema;
 use super::table_privileges::TablePrivileges;
-use super::column_privileges::ColumnPrivileges;
 use super::tables::Table;
 use super::triggers::Trigger;
 use super::views::View;

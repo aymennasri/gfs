@@ -12,23 +12,21 @@ use std::process::Command;
 
 use async_trait::async_trait;
 
-use crate::model::commit::{file_entry_diff_stats, Commit, CommitWithRefs, FileEntry, NewCommit};
+use crate::model::commit::{Commit, CommitWithRefs, FileEntry, NewCommit, file_entry_diff_stats};
 use crate::model::config::{EnvironmentConfig, GfsConfig, RuntimeConfig, UserConfig};
+use crate::model::errors::RepoError;
 use crate::model::layout::{
     BRANCH_WORKSPACE_SEGMENT, GFS_DIR, HEADS_DIR, OBJECTS_DIR, REFS_DIR, SNAPSHOTS_DIR,
     WORKSPACE_DATA_DIR, WORKSPACES_DIR,
 };
 use crate::ports::repository::{LogOptions, RemoteOptions, Repository, RepositoryError, Result};
-use crate::model::errors::RepoError;
 use crate::repo_utils::repo_layout;
 use crate::utils::hash::hash_commit;
 
 fn map_err(e: RepoError) -> RepositoryError {
     match e {
         RepoError::RevisionNotFound(rev) => RepositoryError::RevisionNotFound(rev),
-        RepoError::NoRepoFound(path) => {
-            RepositoryError::NotFound(path.display().to_string())
-        }
+        RepoError::NoRepoFound(path) => RepositoryError::NotFound(path.display().to_string()),
         _ => RepositoryError::Internal(e.to_string()),
     }
 }
@@ -50,7 +48,13 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
             file_count += 1;
         }
     }
-    tracing::debug!("copy_dir_all: copied {} files and {} dirs from {:?} to {:?}", file_count, dir_count, src, dst);
+    tracing::debug!(
+        "copy_dir_all: copied {} files and {} dirs from {:?} to {:?}",
+        file_count,
+        dir_count,
+        src,
+        dst
+    );
     Ok(())
 }
 
@@ -92,7 +96,11 @@ impl Repository for GfsRepository {
         repo_layout::get_workspace_data_dir_for_head(repo).map_err(map_err)
     }
 
-    async fn update_environment_config(&self, repo: &Path, config: EnvironmentConfig) -> Result<()> {
+    async fn update_environment_config(
+        &self,
+        repo: &Path,
+        config: EnvironmentConfig,
+    ) -> Result<()> {
         repo_layout::update_environment_config(repo, config).map_err(map_err)
     }
 
@@ -106,13 +114,11 @@ impl Repository for GfsRepository {
 
     async fn commit(&self, repo: &Path, new_commit: NewCommit) -> Result<String> {
         // Resolve repo to an absolute path so snapshot_path matches where storage wrote the snapshot.
-        let repo = repo
-            .canonicalize()
-            .unwrap_or_else(|_| repo.to_path_buf());
+        let repo = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
 
         // 1. Hash the commit content.
-        let commit_hash = hash_commit(&new_commit)
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let commit_hash =
+            hash_commit(&new_commit).map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // 2. Build the full Commit struct to persist.
         let mut commit = Commit::from_new_commit(&new_commit, commit_hash.clone());
@@ -138,7 +144,9 @@ impl Repository for GfsRepository {
                     .and_then(|p| p.first())
                     .and_then(|parent_id| repo_layout::get_commit_from_hash(&repo, parent_id).ok())
                     .and_then(|parent_commit| {
-                        repo_layout::get_file_entries_for_commit(&repo, &parent_commit).ok().flatten()
+                        repo_layout::get_file_entries_for_commit(&repo, &parent_commit)
+                            .ok()
+                            .flatten()
                     });
                 let (added, deleted, modified) =
                     file_entry_diff_stats(&entries, parent_files.as_deref());
@@ -146,7 +154,8 @@ impl Repository for GfsRepository {
                 commit.files_deleted = Some(deleted);
                 commit.files_modified = Some(modified);
                 commit.files_count = Some(entries.len());
-                let files_hash = repo_layout::write_files_object(&repo, &entries).map_err(map_err)?;
+                let files_hash =
+                    repo_layout::write_files_object(&repo, &entries).map_err(map_err)?;
                 commit.files_ref = Some(files_hash);
             }
         }
@@ -157,12 +166,10 @@ impl Repository for GfsRepository {
         let object_path = object_dir.join(file_part);
 
         // 6. Create object directory and write the JSON-serialised commit.
-        fs::create_dir_all(&object_dir)
-            .map_err(RepositoryError::Io)?;
+        fs::create_dir_all(&object_dir).map_err(RepositoryError::Io)?;
         let json = serde_json::to_string_pretty(&commit)
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        fs::write(&object_path, json)
-            .map_err(RepositoryError::Io)?;
+        fs::write(&object_path, json).map_err(RepositoryError::Io)?;
 
         // 7. Advance the current branch ref to the new commit.
         let branch = repo_layout::get_current_branch(&repo).map_err(map_err)?;
@@ -171,7 +178,12 @@ impl Repository for GfsRepository {
             repo_layout::update_branch_ref(&repo, &branch, &commit_hash).map_err(map_err)?;
         }
 
-        tracing::info!("Committed '{}' on branch '{}' → {}", new_commit.message, branch, commit_hash);
+        tracing::info!(
+            "Committed '{}' on branch '{}' → {}",
+            new_commit.message,
+            branch,
+            commit_hash
+        );
         Ok(commit_hash)
     }
 
@@ -229,7 +241,11 @@ impl Repository for GfsRepository {
 
         // Only populate from snapshot when the workspace does not exist (preserve live DB state in branch workspace).
         let workspace_exists = workspace_path.exists();
-        tracing::info!("Checkout: workspace_path={:?}, exists={}", workspace_path, workspace_exists);
+        tracing::info!(
+            "Checkout: workspace_path={:?}, exists={}",
+            workspace_path,
+            workspace_exists
+        );
         if !workspace_exists {
             let commit = repo_layout::get_commit_from_hash(&repo, &commit_hash).map_err(map_err)?;
             let snapshot_hash = commit.snapshot_hash;
@@ -239,7 +255,11 @@ impl Repository for GfsRepository {
                 .join(&snapshot_hash[..2])
                 .join(&snapshot_hash[2..]);
 
-            tracing::info!("Checkout: snapshot_dir={:?}, exists={}", snapshot_dir, snapshot_dir.exists());
+            tracing::info!(
+                "Checkout: snapshot_dir={:?}, exists={}",
+                snapshot_dir,
+                snapshot_dir.exists()
+            );
             if snapshot_dir.exists() && snapshot_dir.is_dir() {
                 fs::create_dir_all(&workspace_path).map_err(RepositoryError::Io)?;
                 tracing::info!("Checkout: created workspace_path, copying from snapshot...");
@@ -249,7 +269,9 @@ impl Repository for GfsRepository {
                 let _ = fs::remove_file(workspace_path.join("postmaster.pid"));
                 let _ = fs::remove_file(workspace_path.join("postmaster.opts"));
             } else {
-                tracing::warn!("Checkout: snapshot_dir does not exist or is not a directory, creating empty workspace");
+                tracing::warn!(
+                    "Checkout: snapshot_dir does not exist or is not a directory, creating empty workspace"
+                );
                 fs::create_dir_all(&workspace_path).map_err(RepositoryError::Io)?;
             }
         }
@@ -277,16 +299,14 @@ impl Repository for GfsRepository {
     async fn create_branch(&self, repo: &Path, name: &str, commit_hash: &str) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
-            return Err(RepositoryError::RevisionNotFound("(empty branch name)".to_string()));
+            return Err(RepositoryError::RevisionNotFound(
+                "(empty branch name)".to_string(),
+            ));
         }
         if repo_layout::is_branch(repo, name) {
             return Err(RepositoryError::BranchAlreadyExists(name.to_string()));
         }
-        let ref_path = repo
-            .join(GFS_DIR)
-            .join(REFS_DIR)
-            .join(HEADS_DIR)
-            .join(name);
+        let ref_path = repo.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(name);
         if let Some(parent) = ref_path.parent() {
             fs::create_dir_all(parent).map_err(RepositoryError::Io)?;
         }
@@ -314,10 +334,14 @@ impl Repository for GfsRepository {
         let mut current = start;
 
         loop {
-            if let Some(ref until) = until_hash && current == *until {
+            if let Some(ref until) = until_hash
+                && current == *until
+            {
                 break;
             }
-            if let Some(limit) = options.limit && commits.len() >= limit {
+            if let Some(limit) = options.limit
+                && commits.len() >= limit
+            {
                 break;
             }
 
@@ -424,7 +448,11 @@ description = "test"
 
         let commit_id = "0";
         fs::create_dir_all(gfs.join(REFS_DIR).join(HEADS_DIR)).unwrap();
-        fs::write(gfs.join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH), commit_id).unwrap();
+        fs::write(
+            gfs.join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            commit_id,
+        )
+        .unwrap();
 
         fs::create_dir_all(gfs.join(OBJECTS_DIR)).unwrap();
 
@@ -436,7 +464,11 @@ description = "test"
         fs::create_dir_all(&workspace_data_dir).unwrap();
 
         // Write the WORKSPACE file pointing at the initial data dir.
-        fs::write(gfs.join(WORKSPACE_FILE), workspace_data_dir.to_string_lossy().as_ref()).unwrap();
+        fs::write(
+            gfs.join(WORKSPACE_FILE),
+            workspace_data_dir.to_string_lossy().as_ref(),
+        )
+        .unwrap();
 
         tmp
     }
@@ -453,7 +485,11 @@ description = "test"
         )
     }
 
-    fn make_new_commit_with_parent(message: &str, snapshot_hash: &str, parent: String) -> NewCommit {
+    fn make_new_commit_with_parent(
+        message: &str,
+        snapshot_hash: &str,
+        parent: String,
+    ) -> NewCommit {
         NewCommit::new(
             message.to_string(),
             "alice".to_string(),
@@ -485,7 +521,11 @@ description = "test"
             .join(OBJECTS_DIR)
             .join(dir_part)
             .join(file_part);
-        assert!(object_path.exists(), "object file should exist at {:?}", object_path);
+        assert!(
+            object_path.exists(),
+            "object file should exist at {:?}",
+            object_path
+        );
     }
 
     #[tokio::test]
@@ -500,7 +540,11 @@ description = "test"
 
         let (dir_part, file_part) = hash.split_at(2);
         let json_bytes = fs::read(
-            repo_path.join(GFS_DIR).join(OBJECTS_DIR).join(dir_part).join(file_part),
+            repo_path
+                .join(GFS_DIR)
+                .join(OBJECTS_DIR)
+                .join(dir_part)
+                .join(file_part),
         )
         .unwrap();
 
@@ -522,7 +566,11 @@ description = "test"
         let hash = gfs.commit(repo_path, new_commit).await.unwrap();
 
         let ref_content = fs::read_to_string(
-            repo_path.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_path
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
         )
         .unwrap();
         assert_eq!(ref_content.trim(), hash);
@@ -592,7 +640,10 @@ description = "test"
         let expected = prefix_dir.join(&hash[2..]);
         assert_eq!(dest, expected);
         // The dest directory itself is NOT created yet (cp will create it).
-        assert!(!dest.exists(), "dest dir should not exist yet — cp creates it");
+        assert!(
+            !dest.exists(),
+            "dest dir should not exist yet — cp creates it"
+        );
     }
 
     #[tokio::test]
@@ -618,10 +669,16 @@ description = "test"
         let snap_ts = chrono::Utc::now();
         let snapshot_hash = crate::utils::hash::hash_snapshot("/vol/main", &snap_ts);
 
-        let snapshot_dest = gfs.ensure_snapshot_path(repo_path, &snapshot_hash).await.unwrap();
+        let snapshot_dest = gfs
+            .ensure_snapshot_path(repo_path, &snapshot_hash)
+            .await
+            .unwrap();
 
         // Verify the prefix directory was created.
-        let prefix_dir = repo_path.join(GFS_DIR).join(SNAPSHOTS_DIR).join(&snapshot_hash[..2]);
+        let prefix_dir = repo_path
+            .join(GFS_DIR)
+            .join(SNAPSHOTS_DIR)
+            .join(&snapshot_hash[..2]);
         assert!(prefix_dir.exists());
         assert_eq!(snapshot_dest, prefix_dir.join(&snapshot_hash[2..]));
         assert_eq!(snapshot_hash.len(), 64);
@@ -633,7 +690,11 @@ description = "test"
 
         // Verify the commit object contains the correct snapshot_hash.
         let (dir, file) = commit_hash.split_at(2);
-        let obj_path = repo_path.join(GFS_DIR).join(OBJECTS_DIR).join(dir).join(file);
+        let obj_path = repo_path
+            .join(GFS_DIR)
+            .join(OBJECTS_DIR)
+            .join(dir)
+            .join(file);
         let json_bytes = fs::read(obj_path).unwrap();
         let commit: crate::model::commit::Commit = serde_json::from_slice(&json_bytes).unwrap();
         assert_eq!(commit.snapshot_hash, snapshot_hash);
@@ -648,7 +709,10 @@ description = "test"
         let gfs = GfsRepository::new();
 
         let snapshot_hash = crate::utils::hash::hash_snapshot("/vol/main", &chrono::Utc::now());
-        let snapshot_dest = gfs.ensure_snapshot_path(repo_path, &snapshot_hash).await.unwrap();
+        let snapshot_dest = gfs
+            .ensure_snapshot_path(repo_path, &snapshot_hash)
+            .await
+            .unwrap();
         fs::create_dir_all(&snapshot_dest).unwrap();
         fs::write(snapshot_dest.join("file1"), "a").unwrap();
         fs::write(snapshot_dest.join("file2"), "bb").unwrap();
@@ -657,13 +721,26 @@ description = "test"
         let commit_hash = gfs.commit(repo_path, new_commit).await.unwrap();
 
         let (dir, file) = commit_hash.split_at(2);
-        let obj_path = repo_path.join(GFS_DIR).join(OBJECTS_DIR).join(dir).join(file);
+        let obj_path = repo_path
+            .join(GFS_DIR)
+            .join(OBJECTS_DIR)
+            .join(dir)
+            .join(file);
         let commit: crate::model::commit::Commit =
             serde_json::from_slice(&fs::read(obj_path).unwrap()).unwrap();
 
-        assert!(commit.files_ref.is_some(), "files_ref should be populated when snapshot exists");
-        assert_eq!(commit.files_count, Some(2), "files_count should be total file count");
-        let files = repo_layout::get_file_entries_for_commit(repo_path, &commit).unwrap().unwrap();
+        assert!(
+            commit.files_ref.is_some(),
+            "files_ref should be populated when snapshot exists"
+        );
+        assert_eq!(
+            commit.files_count,
+            Some(2),
+            "files_count should be total file count"
+        );
+        let files = repo_layout::get_file_entries_for_commit(repo_path, &commit)
+            .unwrap()
+            .unwrap();
         assert_eq!(files.len(), 2, "should list both files");
         let paths: Vec<&str> = files.iter().map(|e| e.relative_path.as_str()).collect();
         assert!(paths.contains(&"file1"));
@@ -683,7 +760,10 @@ description = "test"
         // First commit: snapshot with file1 and file2.
         let hash1_ts = chrono::Utc::now();
         let snapshot_hash1 = crate::utils::hash::hash_snapshot("/vol/main", &hash1_ts);
-        let dest1 = gfs.ensure_snapshot_path(repo_path, &snapshot_hash1).await.unwrap();
+        let dest1 = gfs
+            .ensure_snapshot_path(repo_path, &snapshot_hash1)
+            .await
+            .unwrap();
         fs::create_dir_all(&dest1).unwrap();
         fs::write(dest1.join("file1"), "a").unwrap();
         fs::write(dest1.join("file2"), "bb").unwrap();
@@ -697,7 +777,10 @@ description = "test"
 
         // Second commit: snapshot with file1 (same), file3 (new), file2 removed.
         let snapshot_hash2 = crate::utils::hash::hash_snapshot("/vol/main", &chrono::Utc::now());
-        let dest2 = gfs.ensure_snapshot_path(repo_path, &snapshot_hash2).await.unwrap();
+        let dest2 = gfs
+            .ensure_snapshot_path(repo_path, &snapshot_hash2)
+            .await
+            .unwrap();
         fs::create_dir_all(&dest2).unwrap();
         fs::write(dest2.join("file1"), "a").unwrap();
         fs::write(dest2.join("file3"), "ccc").unwrap();
@@ -706,14 +789,24 @@ description = "test"
         let commit_hash2 = gfs.commit(repo_path, new_commit).await.unwrap();
 
         let (dir, file) = commit_hash2.split_at(2);
-        let obj_path = repo_path.join(GFS_DIR).join(OBJECTS_DIR).join(dir).join(file);
+        let obj_path = repo_path
+            .join(GFS_DIR)
+            .join(OBJECTS_DIR)
+            .join(dir)
+            .join(file);
         let commit: crate::model::commit::Commit =
             serde_json::from_slice(&fs::read(obj_path).unwrap()).unwrap();
 
         assert_eq!(commit.files_added, Some(1), "file3 added");
         assert_eq!(commit.files_deleted, Some(1), "file2 deleted");
-        assert_eq!(commit.files_modified, Some(0), "file1 unchanged (same size)");
-        let files = repo_layout::get_file_entries_for_commit(repo_path, &commit).unwrap().unwrap();
+        assert_eq!(
+            commit.files_modified,
+            Some(0),
+            "file1 unchanged (same size)"
+        );
+        let files = repo_layout::get_file_entries_for_commit(repo_path, &commit)
+            .unwrap()
+            .unwrap();
         assert_eq!(files.len(), 2);
         let paths: Vec<&str> = files.iter().map(|e| e.relative_path.as_str()).collect();
         assert!(paths.contains(&"file1"));
@@ -801,13 +894,22 @@ description = "test"
         let repo_path = tmp.path();
         let gfs = GfsRepository::new();
 
-        let hash1 = gfs.commit(repo_path, make_new_commit("first", "snap-1")).await.unwrap();
+        let hash1 = gfs
+            .commit(repo_path, make_new_commit("first", "snap-1"))
+            .await
+            .unwrap();
         let hash2 = gfs
-            .commit(repo_path, make_new_commit_with_parent("second", "snap-2", hash1.clone()))
+            .commit(
+                repo_path,
+                make_new_commit_with_parent("second", "snap-2", hash1.clone()),
+            )
             .await
             .unwrap();
         let hash3 = gfs
-            .commit(repo_path, make_new_commit_with_parent("third", "snap-3", hash2.clone()))
+            .commit(
+                repo_path,
+                make_new_commit_with_parent("third", "snap-3", hash2.clone()),
+            )
             .await
             .unwrap();
 
@@ -829,14 +931,23 @@ description = "test"
         let repo_path = tmp.path();
         let gfs = GfsRepository::new();
 
-        let hash1 = gfs.commit(repo_path, make_new_commit("first", "snap-1")).await.unwrap();
+        let hash1 = gfs
+            .commit(repo_path, make_new_commit("first", "snap-1"))
+            .await
+            .unwrap();
         let hash2 = gfs
-            .commit(repo_path, make_new_commit_with_parent("second", "snap-2", hash1.clone()))
+            .commit(
+                repo_path,
+                make_new_commit_with_parent("second", "snap-2", hash1.clone()),
+            )
             .await
             .unwrap();
-        gfs.commit(repo_path, make_new_commit_with_parent("third", "snap-3", hash2))
-            .await
-            .unwrap();
+        gfs.commit(
+            repo_path,
+            make_new_commit_with_parent("third", "snap-3", hash2),
+        )
+        .await
+        .unwrap();
 
         let options = LogOptions {
             limit: Some(2),
@@ -855,14 +966,23 @@ description = "test"
         let repo_path = tmp.path();
         let gfs = GfsRepository::new();
 
-        let hash1 = gfs.commit(repo_path, make_new_commit("first", "snap-1")).await.unwrap();
+        let hash1 = gfs
+            .commit(repo_path, make_new_commit("first", "snap-1"))
+            .await
+            .unwrap();
         let hash2 = gfs
-            .commit(repo_path, make_new_commit_with_parent("second", "snap-2", hash1.clone()))
+            .commit(
+                repo_path,
+                make_new_commit_with_parent("second", "snap-2", hash1.clone()),
+            )
             .await
             .unwrap();
-        gfs.commit(repo_path, make_new_commit_with_parent("third", "snap-3", hash2))
-            .await
-            .unwrap();
+        gfs.commit(
+            repo_path,
+            make_new_commit_with_parent("third", "snap-3", hash2),
+        )
+        .await
+        .unwrap();
 
         let options = LogOptions {
             from: Some("main".to_string()),

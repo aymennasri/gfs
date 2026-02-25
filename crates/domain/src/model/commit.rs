@@ -100,17 +100,15 @@ pub fn file_entry_diff_stats(
     let parent = match parent {
         Some(p) if !p.is_empty() => p,
         _ => {
-            return (
-                current.len(),
-                0,
-                0,
-            );
+            return (current.len(), 0, 0);
         }
     };
     let current_paths: std::collections::HashSet<&str> =
         current.iter().map(|e| e.relative_path.as_str()).collect();
-    let parent_by_path: std::collections::HashMap<&str, &FileEntry> =
-        parent.iter().map(|e| (e.relative_path.as_str(), e)).collect();
+    let parent_by_path: std::collections::HashMap<&str, &FileEntry> = parent
+        .iter()
+        .map(|e| (e.relative_path.as_str(), e))
+        .collect();
     let parent_paths: std::collections::HashSet<&str> = parent_by_path.keys().copied().collect();
 
     let added = current
@@ -121,11 +119,14 @@ pub fn file_entry_diff_stats(
         .iter()
         .filter(|e| !current_paths.contains(e.relative_path.as_str()))
         .count();
-    let modified = current.iter().filter(|e| {
-        parent_by_path
-            .get(e.relative_path.as_str())
-            .is_some_and(|p| p.file_size != e.file_size || p.permissions != e.permissions)
-    }).count();
+    let modified = current
+        .iter()
+        .filter(|e| {
+            parent_by_path
+                .get(e.relative_path.as_str())
+                .is_some_and(|p| p.file_size != e.file_size || p.permissions != e.permissions)
+        })
+        .count();
 
     (added, deleted, modified)
 }
@@ -196,7 +197,7 @@ impl NewCommit {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_entry_diff_stats, FileEntry};
+    use super::{FileEntry, file_entry_diff_stats};
 
     fn entry(path: &str, size: u64, perms: Option<&str>) -> FileEntry {
         FileEntry {
@@ -230,14 +231,8 @@ mod tests {
 
     #[test]
     fn file_entry_diff_stats_added_deleted_modified() {
-        let parent = vec![
-            entry("keep", 10, Some("644")),
-            entry("gone", 5, None),
-        ];
-        let current = vec![
-            entry("keep", 10, Some("644")),
-            entry("new", 3, None),
-        ];
+        let parent = vec![entry("keep", 10, Some("644")), entry("gone", 5, None)];
+        let current = vec![entry("keep", 10, Some("644")), entry("new", 3, None)];
         let (added, deleted, modified) = file_entry_diff_stats(&current, Some(&parent));
         assert_eq!(added, 1, "new is added");
         assert_eq!(deleted, 1, "gone is deleted");
@@ -246,14 +241,8 @@ mod tests {
 
     #[test]
     fn file_entry_diff_stats_modified_by_size_or_permissions() {
-        let parent = vec![
-            entry("f1", 10, Some("600")),
-            entry("f2", 20, Some("644")),
-        ];
-        let current = vec![
-            entry("f1", 11, Some("600")),
-            entry("f2", 20, Some("600")),
-        ];
+        let parent = vec![entry("f1", 10, Some("600")), entry("f2", 20, Some("644"))];
+        let current = vec![entry("f1", 11, Some("600")), entry("f2", 20, Some("600"))];
         let (added, deleted, modified) = file_entry_diff_stats(&current, Some(&parent));
         assert_eq!(added, 0);
         assert_eq!(deleted, 0);

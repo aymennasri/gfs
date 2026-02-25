@@ -3,29 +3,26 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gfs_compute_docker::containers;
 use gfs_compute_docker::DockerCompute;
+use gfs_compute_docker::containers;
 use gfs_domain::adapters::gfs_repository::GfsRepository;
 use gfs_domain::model::config::{GfsConfig, RuntimeConfig};
-use gfs_domain::ports::compute::{
-    Compute, InstanceId, InstanceState, InstanceStatus, LogsOptions,
-};
+use gfs_domain::ports::compute::{Compute, InstanceId, InstanceState, InstanceStatus, LogsOptions};
 use gfs_domain::ports::database_provider::{
     DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry,
 };
 use gfs_domain::ports::repository::{LogOptions, Repository};
 use gfs_domain::repo_utils::repo_layout;
 use gfs_domain::usecases::repository::{
-    checkout_repo_usecase::CheckoutRepoUseCase,
-    commit_repo_usecase::CommitRepoUseCase,
-    init_repo_usecase::InitRepositoryUseCase,
-    log_repo_usecase::LogRepoUseCase,
+    checkout_repo_usecase::CheckoutRepoUseCase, commit_repo_usecase::CommitRepoUseCase,
+    init_repo_usecase::InitRepositoryUseCase, log_repo_usecase::LogRepoUseCase,
     status_repo_usecase::StatusRepoUseCase,
 };
 use rmcp::{
+    ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo},
-    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    schemars, tool, tool_handler, tool_router,
 };
 use serde_json::json;
 
@@ -114,7 +111,9 @@ pub struct InitRequest {
     pub path: Option<String>,
     #[schemars(description = "database provider e.g. postgres, mysql")]
     pub database_provider: Option<String>,
-    #[schemars(description = "database version e.g. 17 for postgres, 8.0 for mysql; required when database_provider is set")]
+    #[schemars(
+        description = "database version e.g. 17 for postgres, 8.0 for mysql; required when database_provider is set"
+    )]
     pub database_version: Option<String>,
 }
 
@@ -153,7 +152,9 @@ impl GfsMcpHandler {
         }
     }
 
-    #[tool(description = "List supported database providers (e.g. postgres, mysql) and their versions and features. Use when choosing or checking which databases this GFS server can run. Equivalent to gfs providers.")]
+    #[tool(
+        description = "List supported database providers (e.g. postgres, mysql) and their versions and features. Use when choosing or checking which databases this GFS server can run. Equivalent to gfs providers."
+    )]
     async fn list_providers(
         &self,
         _: Parameters<ListProvidersRequest>,
@@ -161,7 +162,9 @@ impl GfsMcpHandler {
         do_list_providers().await
     }
 
-    #[tool(description = "Return the current state of the GFS repository and its compute instance (database container). Includes repository branch/HEAD and database container status, connection string when running. Optional: path (string) - repo root. Equivalent to gfs status.")]
+    #[tool(
+        description = "Return the current state of the GFS repository and its compute instance (database container). Includes repository branch/HEAD and database container status, connection string when running. Optional: path (string) - repo root. Equivalent to gfs status."
+    )]
     async fn status(
         &self,
         Parameters(req): Parameters<StatusRequest>,
@@ -172,7 +175,9 @@ impl GfsMcpHandler {
         do_status(&args).await
     }
 
-    #[tool(description = "Create a new commit in the database-backed repository. Required: message (string). Optional: path, author, author_email. Equivalent to gfs commit -m <message>.")]
+    #[tool(
+        description = "Create a new commit in the database-backed repository. Required: message (string). Optional: path, author, author_email. Equivalent to gfs commit -m <message>."
+    )]
     async fn commit(
         &self,
         Parameters(req): Parameters<CommitRequest>,
@@ -186,8 +191,13 @@ impl GfsMcpHandler {
         do_commit(&args).await
     }
 
-    #[tool(description = "Return commit history from the repository (database-backed). Optional: path, max_count (number), from (revision), until (revision). Equivalent to gfs log.")]
-    async fn log(&self, Parameters(req): Parameters<LogRequest>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Return commit history from the repository (database-backed). Optional: path, max_count (number), from (revision), until (revision). Equivalent to gfs log."
+    )]
+    async fn log(
+        &self,
+        Parameters(req): Parameters<LogRequest>,
+    ) -> Result<CallToolResult, McpError> {
         let args = json!({
             "path": req.path,
             "max_count": req.max_count,
@@ -197,7 +207,9 @@ impl GfsMcpHandler {
         do_log(&args).await
     }
 
-    #[tool(description = "Switch branch or checkout commit in the database-backed repository. Required: revision (branch or 64-char hash). Optional: path, create_branch (new branch name). Equivalent to gfs checkout.")]
+    #[tool(
+        description = "Switch branch or checkout commit in the database-backed repository. Required: revision (branch or 64-char hash). Optional: path, create_branch (new branch name). Equivalent to gfs checkout."
+    )]
     async fn checkout(
         &self,
         Parameters(req): Parameters<CheckoutRequest>,
@@ -210,7 +222,9 @@ impl GfsMcpHandler {
         do_checkout(&args).await
     }
 
-    #[tool(description = "Initialize a new GFS repository backed by a database. Optional: path. If database_provider is set (e.g. postgres, mysql), database_version is required (e.g. 17 for postgres). Creates repo metadata and can start the database container. Equivalent to gfs init.")]
+    #[tool(
+        description = "Initialize a new GFS repository backed by a database. Optional: path. If database_provider is set (e.g. postgres, mysql), database_version is required (e.g. 17 for postgres). Creates repo metadata and can start the database container. Equivalent to gfs init."
+    )]
     async fn init(
         &self,
         Parameters(req): Parameters<InitRequest>,
@@ -223,7 +237,9 @@ impl GfsMcpHandler {
         do_init(&args).await
     }
 
-    #[tool(description = "Database compute lifecycle: status, start, stop, restart, pause, unpause, logs for the database container. Required: action (string). Optional: path, id (container), logs_tail, logs_since, logs_no_stdout, logs_no_stderr. Equivalent to gfs compute <action>.")]
+    #[tool(
+        description = "Database compute lifecycle: status, start, stop, restart, pause, unpause, logs for the database container. Required: action (string). Optional: path, id (container), logs_tail, logs_since, logs_no_stdout, logs_no_stderr. Equivalent to gfs compute <action>."
+    )]
     async fn compute(
         &self,
         Parameters(req): Parameters<ComputeRequest>,
@@ -295,9 +311,8 @@ async fn do_status(args: &serde_json::Value) -> Result<CallToolResult, McpError>
     let repo_path = repo_path_from_value(args);
 
     let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-    let compute = Arc::new(
-        DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?,
-    );
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
     containers::register_all(registry.as_ref())
         .map_err(|e| to_error_data(format!("register providers: {e}")))?;
@@ -333,17 +348,22 @@ async fn do_commit(args: &serde_json::Value) -> Result<CallToolResult, McpError>
         return json_err("commit message must be non-empty", Some("INVALID_INPUT"));
     }
     let repo_path = repo_path_from_value(args);
-    let author = args.get("author").and_then(|v| v.as_str()).map(String::from);
-    let author_email = args.get("author_email").and_then(|v| v.as_str()).map(String::from);
+    let author = args
+        .get("author")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let author_email = args
+        .get("author_email")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     #[cfg(target_os = "macos")]
     {
         use gfs_domain::ports::storage::StoragePort;
         let storage: Arc<dyn StoragePort> = Arc::new(gfs_storage_apfs::ApfsStorage::new());
         let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-        let compute: Arc<dyn Compute> = Arc::new(
-            DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?,
-        );
+        let compute: Arc<dyn Compute> =
+            Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
         let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
         containers::register_all(registry.as_ref())
             .map_err(|e| to_error_data(format!("register providers: {e}")))?;
@@ -353,7 +373,14 @@ async fn do_commit(args: &serde_json::Value) -> Result<CallToolResult, McpError>
             .await
             .unwrap_or_else(|_| "HEAD".to_string());
         let commit_hash = use_case
-            .run(repo_path, message.to_string(), author, author_email, None, None)
+            .run(
+                repo_path,
+                message.to_string(),
+                author,
+                author_email,
+                None,
+                None,
+            )
             .await
             .map_err(|e| to_error_data(e.to_string()))?;
         json_ok(json!({
@@ -368,9 +395,8 @@ async fn do_commit(args: &serde_json::Value) -> Result<CallToolResult, McpError>
         use gfs_domain::ports::storage::StoragePort;
         let storage: Arc<dyn StoragePort> = Arc::new(gfs_storage_file::FileStorage::new());
         let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-        let compute: Arc<dyn Compute> = Arc::new(
-            DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?,
-        );
+        let compute: Arc<dyn Compute> =
+            Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
         let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
         containers::register_all(registry.as_ref())
             .map_err(|e| to_error_data(format!("register providers: {e}")))?;
@@ -380,7 +406,14 @@ async fn do_commit(args: &serde_json::Value) -> Result<CallToolResult, McpError>
             .await
             .unwrap_or_else(|_| "HEAD".to_string());
         let commit_hash = use_case
-            .run(repo_path, message.to_string(), author, author_email, None, None)
+            .run(
+                repo_path,
+                message.to_string(),
+                author,
+                author_email,
+                None,
+                None,
+            )
             .await
             .map_err(|e| to_error_data(e.to_string()))?;
         json_ok(json!({
@@ -394,7 +427,10 @@ async fn do_commit(args: &serde_json::Value) -> Result<CallToolResult, McpError>
 async fn do_log(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
     let args = if args.is_object() { args } else { &json!({}) };
     let repo_path = repo_path_from_value(args);
-    let max_count = args.get("max_count").and_then(|v| v.as_u64()).map(|n| n as usize);
+    let max_count = args
+        .get("max_count")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize);
     let from = args.get("from").and_then(|v| v.as_str()).map(String::from);
     let until = args.get("until").and_then(|v| v.as_str()).map(String::from);
 
@@ -429,24 +465,31 @@ async fn do_log(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
 
 async fn do_checkout(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
     let args = if args.is_object() { args } else { &json!({}) };
-    let revision: Option<String> = args.get("revision").and_then(|v| v.as_str()).map(String::from);
-    let create_branch: Option<String> =
-        args.get("create_branch").and_then(|v| v.as_str()).map(String::from);
+    let revision: Option<String> = args
+        .get("revision")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let create_branch: Option<String> = args
+        .get("create_branch")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let (revision, create_branch): (String, Option<String>) = match (&revision, &create_branch) {
         (Some(r), None) => (r.clone(), None),
         (None, Some(b)) => (String::new(), Some(b.clone())),
         (Some(r), Some(b)) => (r.clone(), Some(b.clone())),
         (None, None) => {
-            return json_err("revision required or use create_branch", Some("MISSING_ARGS"));
+            return json_err(
+                "revision required or use create_branch",
+                Some("MISSING_ARGS"),
+            );
         }
     };
 
     let repo_path = repo_path_from_value(args);
     let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-    let compute: Arc<dyn Compute> = Arc::new(
-        DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?,
-    );
+    let compute: Arc<dyn Compute> =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
     containers::register_all(registry.as_ref())
         .map_err(|e| to_error_data(format!("register providers: {e}")))?;
@@ -476,9 +519,8 @@ async fn do_init(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
         .map(String::from);
 
     let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-    let compute = Arc::new(
-        DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?,
-    );
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
     containers::register_all(registry.as_ref())
         .map_err(|e| to_error_data(format!("register providers: {e}")))?;
@@ -521,7 +563,9 @@ async fn do_compute(args: &serde_json::Value) -> Result<CallToolResult, McpError
                 .map(|r| r.container_name.as_str())
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| {
-                    to_error_data("no container_name in repo config (set runtime.container_name or pass id)")
+                    to_error_data(
+                        "no container_name in repo config (set runtime.container_name or pass id)",
+                    )
                 })?;
             name.to_string()
         }
@@ -532,9 +576,10 @@ async fn do_compute(args: &serde_json::Value) -> Result<CallToolResult, McpError
 
     let result = match action {
         "status" => {
-            let status = compute.status(&instance_id).await.map_err(|e| {
-                to_error_data(e.to_string())
-            })?;
+            let status = compute
+                .status(&instance_id)
+                .await
+                .map_err(|e| to_error_data(e.to_string()))?;
             json!({
                 "id": status.id.0,
                 "state": format_instance_state(&status.state),
@@ -551,9 +596,10 @@ async fn do_compute(args: &serde_json::Value) -> Result<CallToolResult, McpError
             })
         }
         "stop" => {
-            let status = compute.stop(&instance_id).await.map_err(|e| {
-                to_error_data(e.to_string())
-            })?;
+            let status = compute
+                .stop(&instance_id)
+                .await
+                .map_err(|e| to_error_data(e.to_string()))?;
             json!({
                 "id": status.id.0,
                 "state": format_instance_state(&status.state),
@@ -567,25 +613,30 @@ async fn do_compute(args: &serde_json::Value) -> Result<CallToolResult, McpError
             })
         }
         "pause" => {
-            let status = compute.pause(&instance_id).await.map_err(|e| {
-                to_error_data(e.to_string())
-            })?;
+            let status = compute
+                .pause(&instance_id)
+                .await
+                .map_err(|e| to_error_data(e.to_string()))?;
             json!({
                 "id": status.id.0,
                 "state": format_instance_state(&status.state),
             })
         }
         "unpause" => {
-            let status = compute.unpause(&instance_id).await.map_err(|e| {
-                to_error_data(e.to_string())
-            })?;
+            let status = compute
+                .unpause(&instance_id)
+                .await
+                .map_err(|e| to_error_data(e.to_string()))?;
             json!({
                 "id": status.id.0,
                 "state": format_instance_state(&status.state),
             })
         }
         "logs" => {
-            let tail = args.get("logs_tail").and_then(|v| v.as_u64()).map(|n| n as usize);
+            let tail = args
+                .get("logs_tail")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
             let since_str = args.get("logs_since").and_then(|v| v.as_str());
             let since = since_str
                 .map(|s| {
@@ -610,9 +661,10 @@ async fn do_compute(args: &serde_json::Value) -> Result<CallToolResult, McpError
                 stdout,
                 stderr,
             };
-            let entries = compute.logs(&instance_id, options).await.map_err(|e| {
-                to_error_data(e.to_string())
-            })?;
+            let entries = compute
+                .logs(&instance_id, options)
+                .await
+                .map_err(|e| to_error_data(e.to_string()))?;
             let lines: Vec<serde_json::Value> = entries
                 .iter()
                 .map(|e| {
@@ -673,10 +725,14 @@ async fn start_or_restart(
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
     containers::register_all(registry.as_ref())
         .map_err(|e| to_error_data(format!("register providers: {e}")))?;
-    let provider = registry.get(provider_name).ok_or_else(|| {
-        to_error_data(format!("unknown database provider: {}", provider_name))
-    })?;
-    let compute_data_path = provider.definition().data_dir.to_string_lossy().into_owned();
+    let provider = registry
+        .get(provider_name)
+        .ok_or_else(|| to_error_data(format!("unknown database provider: {}", provider_name)))?;
+    let compute_data_path = provider
+        .definition()
+        .data_dir
+        .to_string_lossy()
+        .into_owned();
     let current_bind = match compute
         .get_instance_data_mount_host_path(instance_id, &compute_data_path)
         .await
@@ -685,13 +741,23 @@ async fn start_or_restart(
         _ => return just_start_or_restart(compute, instance_id, restart).await,
     };
     if paths_differ(&active, &current_bind) {
-        compute.stop(instance_id).await.map_err(|e| to_error_data(e.to_string()))?;
-        compute.remove_instance(instance_id).await.map_err(|e| to_error_data(e.to_string()))?;
+        compute
+            .stop(instance_id)
+            .await
+            .map_err(|e| to_error_data(e.to_string()))?;
+        compute
+            .remove_instance(instance_id)
+            .await
+            .map_err(|e| to_error_data(e.to_string()))?;
         let mut definition = provider.definition();
         if let Some(ref env) = config.environment
             && !env.database_version.is_empty()
         {
-            let base = definition.image.split(':').next().unwrap_or(&definition.image);
+            let base = definition
+                .image
+                .split(':')
+                .next()
+                .unwrap_or(&definition.image);
             definition.image = format!("{}:{}", base, env.database_version);
         }
         definition.host_data_dir = Some(std::path::PathBuf::from(&active));

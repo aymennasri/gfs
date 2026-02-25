@@ -3,17 +3,15 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use gfs_compute_docker::DockerCompute;
 use gfs_domain::model::config::{GfsConfig, RuntimeConfig};
-use gfs_domain::ports::compute::{
-    Compute, InstanceId, InstanceState, InstanceStatus, LogsOptions,
-};
+use gfs_domain::ports::compute::{Compute, InstanceId, InstanceState, InstanceStatus, LogsOptions};
 use gfs_domain::ports::database_provider::{
     DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry,
 };
 use gfs_domain::repo_utils::repo_layout;
 use std::sync::Arc;
 
-use crate::cli_utils::{get_repo_dir, relativize_to_repo};
 use crate::ComputeAction;
+use crate::cli_utils::{get_repo_dir, relativize_to_repo};
 
 // ---------------------------------------------------------------------------
 // Entry point called from main
@@ -35,7 +33,8 @@ fn resolve_id(path: Option<PathBuf>, action: &ComputeAction) -> Result<String> {
         return Ok(id.to_string());
     }
     let repo_path = path.unwrap_or_else(get_repo_dir);
-    let config = GfsConfig::load(&repo_path).context("not a gfs repository (use --path <repo> or run from a repo)")?;
+    let config = GfsConfig::load(&repo_path)
+        .context("not a gfs repository (use --path <repo> or run from a repo)")?;
     let container_name = config
         .runtime
         .as_ref()
@@ -80,8 +79,8 @@ async fn dispatch(
 
         ComputeAction::Start { .. } => {
             let repo_path = path.clone().unwrap_or_else(get_repo_dir);
-            let (instance_id, status) = start_restart_or_recreate(compute, &instance_id, &repo_path, false)
-                .await?;
+            let (instance_id, status) =
+                start_restart_or_recreate(compute, &instance_id, &repo_path, false).await?;
             print_status(&status);
             if let Some(ref dir) = container_data_dir(compute, &instance_id, path).await {
                 let rel = relativize_to_repo(&repo_path, dir);
@@ -99,8 +98,8 @@ async fn dispatch(
 
         ComputeAction::Restart { .. } => {
             let repo_path = path.clone().unwrap_or_else(get_repo_dir);
-            let (instance_id, status) = start_restart_or_recreate(compute, &instance_id, &repo_path, true)
-                .await?;
+            let (instance_id, status) =
+                start_restart_or_recreate(compute, &instance_id, &repo_path, true).await?;
             print_status(&status);
             if let Some(ref dir) = container_data_dir(compute, &instance_id, path).await {
                 let rel = relativize_to_repo(&repo_path, dir);
@@ -189,14 +188,14 @@ fn print_status(s: &InstanceStatus) {
 
 fn format_state(state: &InstanceState) -> &'static str {
     match state {
-        InstanceState::Starting   => "starting",
-        InstanceState::Running    => "running",
-        InstanceState::Paused     => "paused",
-        InstanceState::Stopping   => "stopping",
-        InstanceState::Stopped    => "stopped",
+        InstanceState::Starting => "starting",
+        InstanceState::Running => "running",
+        InstanceState::Paused => "paused",
+        InstanceState::Stopping => "stopping",
+        InstanceState::Stopped => "stopped",
         InstanceState::Restarting => "restarting",
-        InstanceState::Failed     => "failed",
-        InstanceState::Unknown    => "unknown",
+        InstanceState::Failed => "failed",
+        InstanceState::Unknown => "unknown",
     }
 }
 
@@ -224,11 +223,16 @@ async fn start_restart_or_recreate(
     };
 
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
-    gfs_compute_docker::containers::register_all(registry.as_ref()).context("register providers")?;
+    gfs_compute_docker::containers::register_all(registry.as_ref())
+        .context("register providers")?;
     let provider = registry
         .get(provider_name)
         .context("unknown database provider")?;
-    let compute_data_path = provider.definition().data_dir.to_string_lossy().into_owned();
+    let compute_data_path = provider
+        .definition()
+        .data_dir
+        .to_string_lossy()
+        .into_owned();
 
     let current_bind = match compute
         .get_instance_data_mount_host_path(instance_id, &compute_data_path)
@@ -249,7 +253,11 @@ async fn start_restart_or_recreate(
     if let Some(ref env) = config.environment
         && !env.database_version.is_empty()
     {
-        let base = definition.image.split(':').next().unwrap_or(&definition.image);
+        let base = definition
+            .image
+            .split(':')
+            .next()
+            .unwrap_or(&definition.image);
         definition.image = format!("{}:{}", base, env.database_version);
     }
     definition.host_data_dir = Some(std::path::PathBuf::from(&active));
@@ -304,10 +312,13 @@ async fn container_data_dir(
         return None;
     }
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
-    gfs_compute_docker::containers::register_all(registry.as_ref())
-        .ok()?;
+    gfs_compute_docker::containers::register_all(registry.as_ref()).ok()?;
     let provider = registry.get(provider_name)?;
-    let compute_data_path = provider.definition().data_dir.to_string_lossy().into_owned();
+    let compute_data_path = provider
+        .definition()
+        .data_dir
+        .to_string_lossy()
+        .into_owned();
     let host_path = compute
         .get_instance_data_mount_host_path(instance_id, &compute_data_path)
         .await

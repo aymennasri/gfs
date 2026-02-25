@@ -54,7 +54,10 @@ pub struct ConnectionParams {
 impl ConnectionParams {
     /// Look up an env var by name (case-sensitive).
     pub fn get_env(&self, name: &str) -> Option<&str> {
-        self.env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.env
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -110,7 +113,10 @@ pub trait DatabaseProvider: Send + Sync {
     }
 
     /// Build a client connection string from host, port, and optional env (credentials, db name).
-    fn connection_string(&self, params: &ConnectionParams) -> std::result::Result<String, ProviderError>;
+    fn connection_string(
+        &self,
+        params: &ConnectionParams,
+    ) -> std::result::Result<String, ProviderError>;
 
     /// Extract version string from the definition's image (e.g. `postgres:16` → `"16"`).
     fn version_from_image(&self, definition: &ComputeDefinition) -> String {

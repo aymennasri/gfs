@@ -1,7 +1,7 @@
 use crate::model::commit::{FileEntry, NewCommit};
 use crate::model::errors::CommitError;
-use sha2::{Digest, Sha256};
 use serde_json;
+use sha2::{Digest, Sha256};
 
 /// Deterministic bincode config for file entries (same bytes for same Vec<FileEntry>).
 fn bincode_config() -> bincode::config::Configuration {
@@ -62,12 +62,18 @@ mod tests {
     fn hash_snapshot_differs_on_different_timestamp() {
         let ts1 = chrono::Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let ts2 = chrono::Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 1).unwrap();
-        assert_ne!(hash_snapshot("/data/main", &ts1), hash_snapshot("/data/main", &ts2));
+        assert_ne!(
+            hash_snapshot("/data/main", &ts1),
+            hash_snapshot("/data/main", &ts2)
+        );
     }
 
     #[test]
     fn hash_snapshot_differs_on_different_source() {
         let ts = chrono::Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
-        assert_ne!(hash_snapshot("/data/main", &ts), hash_snapshot("/data/other", &ts));
+        assert_ne!(
+            hash_snapshot("/data/main", &ts),
+            hash_snapshot("/data/other", &ts)
+        );
     }
 }

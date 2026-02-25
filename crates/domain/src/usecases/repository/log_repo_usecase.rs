@@ -38,6 +38,9 @@ impl LogRepoUseCase {
         path: PathBuf,
         options: LogOptions,
     ) -> std::result::Result<Vec<CommitWithRefs>, LogRepoError> {
-        self.repository.log(&path, options).await.map_err(LogRepoError::from)
+        self.repository
+            .log(&path, options)
+            .await
+            .map_err(LogRepoError::from)
     }
 }

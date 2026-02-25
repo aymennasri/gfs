@@ -1,11 +1,12 @@
-use anyhow::Result;
 use crate::model::commit::{Commit, FileEntry};
 use crate::model::config::{EnvironmentConfig, GfsConfig, RuntimeConfig, UserConfig};
 use crate::model::errors::RepoError;
 use crate::model::layout::{
-    BRANCH_WORKSPACE_SEGMENT, CONFIG_FILE, GFS_DIR, HEADS_DIR, HEAD_FILE, MAIN_BRANCH, OBJECTS_DIR,
-    REFS_DIR, SHORT_COMMIT_ID_LEN, SNAPSHOTS_DIR, WORKSPACE_DATA_DIR, WORKSPACE_FILE, WORKSPACES_DIR,
+    BRANCH_WORKSPACE_SEGMENT, CONFIG_FILE, GFS_DIR, HEAD_FILE, HEADS_DIR, MAIN_BRANCH, OBJECTS_DIR,
+    REFS_DIR, SHORT_COMMIT_ID_LEN, SNAPSHOTS_DIR, WORKSPACE_DATA_DIR, WORKSPACE_FILE,
+    WORKSPACES_DIR,
 };
+use anyhow::Result;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,7 +28,8 @@ pub fn validate_repo_layout(gfs_dir: &Path) -> Result<(), RepoError> {
     // Validate config.toml is valid TOML
     tracing::trace!("Validating config.toml in {}", gfs_dir.display());
     let config_content = fs::read_to_string(&config_path).map_err(RepoError::from)?;
-    toml::from_str::<toml::Value>(&config_content).map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
+    toml::from_str::<toml::Value>(&config_content)
+        .map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
 
     // Check refs/heads/main
     tracing::trace!("Checking refs/heads/main in {}", gfs_dir.display());
@@ -46,18 +48,19 @@ pub fn validate_repo_layout(gfs_dir: &Path) -> Result<(), RepoError> {
     }
 
     // Check workspace data dir for current branch/commit (required after init)
-    tracing::trace!("Checking workspace data dir for HEAD in {}", gfs_dir.display());
-    let repo_path = gfs_dir.parent().ok_or_else(|| {
-        RepoError::invalid_layout("invalid .gfs path".to_string())
-    })?;
+    tracing::trace!(
+        "Checking workspace data dir for HEAD in {}",
+        gfs_dir.display()
+    );
+    let repo_path = gfs_dir
+        .parent()
+        .ok_or_else(|| RepoError::invalid_layout("invalid .gfs path".to_string()))?;
     let workspace_data_dir = get_workspace_data_dir_path(repo_path)?;
     if !workspace_data_dir.exists() || !workspace_data_dir.is_dir() {
-        return Err(RepoError::invalid_layout(
-            format!(
-                "workspace data directory is missing or not a directory: {}",
-                workspace_data_dir.display()
-            ),
-        ));
+        return Err(RepoError::invalid_layout(format!(
+            "workspace data directory is missing or not a directory: {}",
+            workspace_data_dir.display()
+        )));
     }
 
     Ok(())
@@ -118,8 +121,11 @@ pub fn init_repo_layout(working_dir: &Path, mount_point: Option<String>) -> Resu
     // have accumulated since init.  It is updated by checkout / branch
     // operations; commit intentionally leaves it unchanged.
     let workspace_file = gfs_dir.join(WORKSPACE_FILE);
-    fs::write(&workspace_file, workspace_data_dir.to_string_lossy().as_ref())
-        .map_err(RepoError::from)?;
+    fs::write(
+        &workspace_file,
+        workspace_data_dir.to_string_lossy().as_ref(),
+    )
+    .map_err(RepoError::from)?;
 
     // Create config.toml
     let config = GfsConfig {
@@ -132,7 +138,8 @@ pub fn init_repo_layout(working_dir: &Path, mount_point: Option<String>) -> Resu
     };
 
     let config_path = gfs_dir.join(CONFIG_FILE);
-    let content = toml::to_string_pretty(&config).map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
+    let content =
+        toml::to_string_pretty(&config).map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
     fs::write(&config_path, content).map_err(RepoError::from)?;
 
     tracing::info!("Successfully initialized .gfs directory");
@@ -190,7 +197,8 @@ pub fn get_current_branch(path: &Path) -> Result<String, RepoError> {
     let trimmed = head_content.trim();
     if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         Ok(trimmed.to_string())
-    } else if let Some(branch) = trimmed.strip_prefix(&format!("ref: {}/{}/", REFS_DIR, HEADS_DIR)) {
+    } else if let Some(branch) = trimmed.strip_prefix(&format!("ref: {}/{}/", REFS_DIR, HEADS_DIR))
+    {
         Ok(branch.trim().to_string())
     } else {
         Err(RepoError::invalid_layout(format!(
@@ -271,7 +279,11 @@ pub fn ensure_snapshot_path(repo_path: &Path, hash: &str) -> Result<std::path::P
 /// Does not create the directory; use [`ensure_snapshot_path`] for that.
 pub fn snapshot_path(repo_path: &Path, hash: &str) -> PathBuf {
     let (prefix, rest) = hash.split_at(2);
-    repo_path.join(GFS_DIR).join(SNAPSHOTS_DIR).join(prefix).join(rest)
+    repo_path
+        .join(GFS_DIR)
+        .join(SNAPSHOTS_DIR)
+        .join(prefix)
+        .join(rest)
 }
 
 /// Logical size of a directory tree (sum of file lengths in bytes).
@@ -388,7 +400,9 @@ fn collect_file_entries_into(
 }
 
 #[cfg(unix)]
-fn file_metadata_owner_group_mode(meta: &std::fs::Metadata) -> (Option<String>, Option<String>, Option<String>) {
+fn file_metadata_owner_group_mode(
+    meta: &std::fs::Metadata,
+) -> (Option<String>, Option<String>, Option<String>) {
     use std::os::unix::fs::MetadataExt;
     let owner = Some(meta.uid().to_string());
     let group = Some(meta.gid().to_string());
@@ -397,7 +411,9 @@ fn file_metadata_owner_group_mode(meta: &std::fs::Metadata) -> (Option<String>, 
 }
 
 #[cfg(not(unix))]
-fn file_metadata_owner_group_mode(_meta: &std::fs::Metadata) -> (Option<String>, Option<String>, Option<String>) {
+fn file_metadata_owner_group_mode(
+    _meta: &std::fs::Metadata,
+) -> (Option<String>, Option<String>, Option<String>) {
     (None, None, None)
 }
 
@@ -469,7 +485,8 @@ pub fn get_commit_from_hash(repo_path: &Path, commit_hash: &str) -> Result<Commi
     let object_path = objects_dir.join(dir_part).join(file_part);
     let commit_json = fs::read_to_string(object_path).map_err(RepoError::from)?;
 
-    let commit: Commit = serde_json::from_str(&commit_json).map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
+    let commit: Commit =
+        serde_json::from_str(&commit_json).map_err(|e| RepoError::InvalidConfig(e.to_string()))?;
     Ok(commit)
 }
 
@@ -497,7 +514,10 @@ pub fn write_files_object(repo_path: &Path, entries: &[FileEntry]) -> Result<Str
 }
 
 /// Read the file entries list from the object store by its content hash.
-pub fn get_file_entries_by_ref(repo_path: &Path, files_ref: &str) -> Result<Vec<FileEntry>, RepoError> {
+pub fn get_file_entries_by_ref(
+    repo_path: &Path,
+    files_ref: &str,
+) -> Result<Vec<FileEntry>, RepoError> {
     let objects_dir = repo_path.join(GFS_DIR).join(OBJECTS_DIR);
     let (dir_part, file_part) = files_ref.split_at(2);
     let object_path = objects_dir.join(dir_part).join(file_part);
@@ -508,7 +528,10 @@ pub fn get_file_entries_by_ref(repo_path: &Path, files_ref: &str) -> Result<Vec<
 }
 
 /// Resolve the file list for a commit. Returns `Some(entries)` if `files_ref` is set, else `None`.
-pub fn get_file_entries_for_commit(repo_path: &Path, commit: &Commit) -> Result<Option<Vec<FileEntry>>, RepoError> {
+pub fn get_file_entries_for_commit(
+    repo_path: &Path,
+    commit: &Commit,
+) -> Result<Option<Vec<FileEntry>>, RepoError> {
     match &commit.files_ref {
         Some(hash) => get_file_entries_by_ref(repo_path, hash).map(Some),
         None => Ok(None),
@@ -609,7 +632,10 @@ pub fn rev_parse(repo_path: &Path, revision: &str) -> Result<String, RepoError> 
         let content = fs::read_to_string(branch_path).map_err(RepoError::from)?;
         return Ok(content.trim().to_string());
     }
-    if revision.len() == 64 && revision.chars().all(|c| c.is_ascii_hexdigit()) && is_commit(repo_path, revision) {
+    if revision.len() == 64
+        && revision.chars().all(|c| c.is_ascii_hexdigit())
+        && is_commit(repo_path, revision)
+    {
         return Ok(revision.to_string());
     }
     Err(RepoError::RevisionNotFound(revision.to_string()))
@@ -659,7 +685,8 @@ pub fn get_refs_pointing_to(repo_path: &Path, commit_hash: &str) -> Result<Vec<S
         if head_trimmed == commit_hash {
             refs.push(HEAD_FILE.to_string());
         }
-    } else if let Some(branch) = head_trimmed.strip_prefix(&format!("ref: {}/{}/", REFS_DIR, HEADS_DIR))
+    } else if let Some(branch) =
+        head_trimmed.strip_prefix(&format!("ref: {}/{}/", REFS_DIR, HEADS_DIR))
     {
         head_branch = Some(branch.trim().to_string());
     }
@@ -715,7 +742,10 @@ pub fn get_workspace_data_dir_path(repo_path: &Path) -> Result<std::path::PathBu
     let gfs_dir = repo_path.join(GFS_DIR);
     let (branch_segment, workspace_segment): (String, String) =
         if branch.len() == 64 && branch.chars().all(|c| c.is_ascii_hexdigit()) {
-            ("detached".to_string(), short_commit_id_for_workspace(&commit_id))
+            (
+                "detached".to_string(),
+                short_commit_id_for_workspace(&commit_id),
+            )
         } else {
             (branch.clone(), BRANCH_WORKSPACE_SEGMENT.to_string())
         };
@@ -770,7 +800,10 @@ name = "test-repo"
 
         let commit_id = "0000000000000000000000000000000000000000";
         fs::create_dir_all(gfs.join(REFS_DIR).join(HEADS_DIR))?;
-        fs::write(gfs.join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH), commit_id)?;
+        fs::write(
+            gfs.join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            commit_id,
+        )?;
 
         fs::create_dir(gfs.join(OBJECTS_DIR))?;
 
@@ -808,14 +841,17 @@ name = "test-repo"
     fn directory_logical_and_physical_size_bytes() -> Result<(), Box<dyn std::error::Error>> {
         let temp = TempDir::new()?;
         let dir = temp.path();
-        fs::write(dir.join("a"), "hello")?;           // 5 bytes
-        fs::write(dir.join("b"), "world")?;           // 5 bytes
+        fs::write(dir.join("a"), "hello")?; // 5 bytes
+        fs::write(dir.join("b"), "world")?; // 5 bytes
         fs::create_dir(dir.join("sub"))?;
-        fs::write(dir.join("sub").join("c"), "x")?;   // 1 byte
+        fs::write(dir.join("sub").join("c"), "x")?; // 1 byte
         let logical = directory_logical_size_bytes(dir)?;
         assert_eq!(logical, 11, "logical = 5+5+1");
         let physical = directory_physical_size_bytes(dir)?;
-        assert!(physical >= logical, "physical (blocks) should be >= logical");
+        assert!(
+            physical >= logical,
+            "physical (blocks) should be >= logical"
+        );
         Ok(())
     }
 
@@ -833,7 +869,11 @@ name = "test-repo"
         fs::write(repo_dir.join(GFS_DIR).join(CONFIG_FILE), config_toml).unwrap();
         fs::create_dir_all(repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR)).unwrap();
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             "0000000000000000000000000000000000000000",
         )
         .unwrap();
@@ -862,7 +902,11 @@ name = "test-repo"
         .unwrap();
         fs::create_dir_all(repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR)).unwrap();
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             "0000000000000000000000000000000000000000",
         )
         .unwrap();
@@ -891,7 +935,11 @@ name = "test-repo"
         .unwrap();
         fs::create_dir_all(repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR)).unwrap();
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             "0000000000000000000000000000000000000000",
         )
         .unwrap();
@@ -1096,7 +1144,11 @@ name = "test-repo"
         let hash = "ab00000000000000000000000000000000000000000000000000000000000000";
         let (dir_part, file_part) = hash.split_at(2);
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             hash,
         )
         .unwrap();
@@ -1130,7 +1182,11 @@ name = "test-repo"
             db_objects_modified: None,
         };
         fs::write(
-            repo_dir.join(GFS_DIR).join(OBJECTS_DIR).join(dir_part).join(file_part),
+            repo_dir
+                .join(GFS_DIR)
+                .join(OBJECTS_DIR)
+                .join(dir_part)
+                .join(file_part),
             serde_json::to_string(&commit).unwrap(),
         )
         .unwrap();
@@ -1216,7 +1272,11 @@ name = "test-repo"
         let hash = "ef00000000000000000000000000000000000000000000000000000000000000";
         let (dir_part, file_part) = hash.split_at(2);
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             hash,
         )
         .unwrap();
@@ -1250,7 +1310,11 @@ name = "test-repo"
             db_objects_modified: None,
         };
         fs::write(
-            repo_dir.join(GFS_DIR).join(OBJECTS_DIR).join(dir_part).join(file_part),
+            repo_dir
+                .join(GFS_DIR)
+                .join(OBJECTS_DIR)
+                .join(dir_part)
+                .join(file_part),
             serde_json::to_string(&commit).unwrap(),
         )
         .unwrap();
@@ -1270,7 +1334,11 @@ name = "test-repo"
         let (dir_part, file_part) = hash.split_at(2);
         fs::write(repo_dir.join(GFS_DIR).join(HEAD_FILE), hash).unwrap();
         fs::write(
-            repo_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join(MAIN_BRANCH),
+            repo_dir
+                .join(GFS_DIR)
+                .join(REFS_DIR)
+                .join(HEADS_DIR)
+                .join(MAIN_BRANCH),
             "0",
         )
         .unwrap();
@@ -1304,7 +1372,11 @@ name = "test-repo"
             db_objects_modified: None,
         };
         fs::write(
-            repo_dir.join(GFS_DIR).join(OBJECTS_DIR).join(dir_part).join(file_part),
+            repo_dir
+                .join(GFS_DIR)
+                .join(OBJECTS_DIR)
+                .join(dir_part)
+                .join(file_part),
             serde_json::to_string(&commit).unwrap(),
         )
         .unwrap();

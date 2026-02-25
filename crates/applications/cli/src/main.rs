@@ -40,21 +40,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gfs_domain::ports::storage::{
-    CloneOptions, SnapshotId, SnapshotOptions, VolumeId,
-};
+use gfs_domain::ports::storage::{CloneOptions, SnapshotId, SnapshotOptions, VolumeId};
 
 // ---------------------------------------------------------------------------
 // CLI definition
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(
-    name    = "gfs",
-    about   = "Guepard data-plane CLI",
-    version,
-    propagate_version = true
-)]
+#[command(name = "gfs", about = "Guepard CLI", version, propagate_version = true)]
 struct Cli {
     #[command(subcommand)]
     command: TopLevel,
@@ -374,29 +367,37 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        TopLevel::Init { path, database_provider, database_version } => {
-            commands::cmd_init::init(path, database_provider, database_version)
-                .await
-                .map_err(|e| anyhow::anyhow!("{}", e))
-        }
-        TopLevel::Commit { message, path, author, author_email } => {
-            commands::cmd_commit::commit(path, message, author, author_email).await
-        }
+        TopLevel::Init {
+            path,
+            database_provider,
+            database_version,
+        } => commands::cmd_init::init(path, database_provider, database_version)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e)),
+        TopLevel::Commit {
+            message,
+            path,
+            author,
+            author_email,
+        } => commands::cmd_commit::commit(path, message, author, author_email).await,
         TopLevel::Config { path, key, value } => {
             commands::cmd_config::run(path, key, value).map_err(|e| anyhow::anyhow!("{}", e))
         }
-        TopLevel::Checkout { path, create_branch, revision } => {
-            commands::cmd_checkout::checkout(path, revision, create_branch).await
-        }
+        TopLevel::Checkout {
+            path,
+            create_branch,
+            revision,
+        } => commands::cmd_checkout::checkout(path, revision, create_branch).await,
         TopLevel::Providers { provider } => {
             commands::cmd_providers::run(provider).map_err(|e| anyhow::anyhow!("{}", e))
         }
-        TopLevel::Log { path, max_count, from, until } => {
-            commands::cmd_log::log(path, max_count, from, until).await
-        }
-        TopLevel::Status { path, output } => {
-            commands::cmd_status::run(path, output).await
-        }
+        TopLevel::Log {
+            path,
+            max_count,
+            from,
+            until,
+        } => commands::cmd_log::log(path, max_count, from, until).await,
+        TopLevel::Status { path, output } => commands::cmd_status::run(path, output).await,
         TopLevel::Storage { action } => run_storage(action).await,
         TopLevel::Compute { path, action } => run_compute(path, action).await,
         TopLevel::Mcp { path, action } => {

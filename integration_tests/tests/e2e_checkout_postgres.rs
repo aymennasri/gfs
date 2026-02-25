@@ -43,9 +43,7 @@ struct OneOffContainerGuard(String);
 
 impl Drop for OneOffContainerGuard {
     fn drop(&mut self) {
-        let _ = Command::new("docker")
-            .args(["rm", "-f", &self.0])
-            .output();
+        let _ = Command::new("docker").args(["rm", "-f", &self.0]).output();
     }
 }
 
@@ -88,7 +86,8 @@ fn register_main_container_for_cleanup(container_id: String) {
 
 /// Stop and remove the main container if one was registered. Ensures no test-provisioned containers remain.
 fn cleanup_main_container(repo_path: &Path) {
-    let container_id = MAIN_CONTAINER_CLEANUP.take_container_id()
+    let container_id = MAIN_CONTAINER_CLEANUP
+        .take_container_id()
         .or_else(|| get_container_id(repo_path));
     if let Some(id) = container_id {
         let _ = Command::new("docker").args(["stop", &id]).output();
@@ -383,7 +382,6 @@ fn has_pgbench_tables(output: &str) -> bool {
         || output.contains("pgbench_tellers")
 }
 
-
 /// Return current Unix uid and gid as "(uid):(gid)" for `docker run --user`. Fails if id cannot be determined.
 fn host_user_uid_gid() -> String {
     let uid = Command::new("id")
@@ -461,7 +459,9 @@ fn run_one_off_postgres_list_tables_inner(
     let _guard = OneOffContainerGuard(name.clone());
     for _ in 0..30 {
         let ok = Command::new("docker")
-            .args(["exec", &name, "psql", "-U", "postgres", "-d", "postgres", "-c", "SELECT 1"])
+            .args([
+                "exec", &name, "psql", "-U", "postgres", "-d", "postgres", "-c", "SELECT 1",
+            ])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -473,15 +473,7 @@ fn run_one_off_postgres_list_tables_inner(
     thread::sleep(Duration::from_secs(2));
     let out = Command::new("docker")
         .args([
-            "exec",
-            &name,
-            "psql",
-            "-U",
-            "postgres",
-            "-d",
-            "postgres",
-            "-c",
-            "\\dt",
+            "exec", &name, "psql", "-U", "postgres", "-d", "postgres", "-c", "\\dt",
         ])
         .output()
         .expect("psql \\dt in one-off");
@@ -566,8 +558,8 @@ fn test_01_init_config_validate_commit_log() {
         "log should show HEAD -> main; got: {log_stdout}"
     );
 
-    let container_id = get_container_id(repo_path)
-        .expect("runtime config with container_name should be present");
+    let container_id =
+        get_container_id(repo_path).expect("runtime config with container_name should be present");
     register_main_container_for_cleanup(container_id.clone());
     assert!(
         wait_for_postgres(&container_id),
@@ -595,7 +587,10 @@ fn test_02_pgbench_commit_compute_status() {
         Some("Test User"),
         Some("test@example.com"),
     );
-    assert!(ok, "gfs commit after pgbench should succeed; stderr: {stderr}");
+    assert!(
+        ok,
+        "gfs commit after pgbench should succeed; stderr: {stderr}"
+    );
 
     let (log_ok, log_stdout, log_stderr) = gfs_log(repo_path, Some(2));
     assert!(log_ok, "gfs log -n 2 should succeed; stderr: {log_stderr}");
@@ -644,7 +639,10 @@ fn test_03_checkout_previous_no_pgbench() {
     );
 
     let workspace_path = read_workspace_path(repo_path);
-    assert!(workspace_path.exists(), "workspace dir should exist: {workspace_path:?}");
+    assert!(
+        workspace_path.exists(),
+        "workspace dir should exist: {workspace_path:?}"
+    );
 
     let tables_output = run_one_off_postgres_list_tables_as_host_user(&workspace_path);
     assert!(
@@ -670,7 +668,10 @@ fn test_04_checkout_head_has_pgbench() {
 
     // Checkout main must point at the branch's persistent workspace (main/0), not a new commit-hash folder.
     let workspace_path = read_workspace_path(repo_path);
-    assert!(workspace_path.exists(), "workspace dir should exist: {workspace_path:?}");
+    assert!(
+        workspace_path.exists(),
+        "workspace dir should exist: {workspace_path:?}"
+    );
     assert!(
         workspace_path.to_string_lossy().contains("main/0/data"),
         "checkout main must use branch workspace workspaces/main/0/data, not workspaces/main/<hash>/data; got: {workspace_path:?}"
@@ -683,7 +684,10 @@ fn test_04_checkout_head_has_pgbench() {
     assert!(
         has_pg_data,
         "workspace should contain Postgres data dirs; listing: {:?}",
-        fs::read_dir(&workspace_path).unwrap().collect::<Result<Vec<_>, _>>().unwrap()
+        fs::read_dir(&workspace_path)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
     );
     // Validate compute is still running (we never start/stop).
     let (status_ok, status_stdout, status_stderr) = gfs_compute_status(repo_path);
@@ -720,7 +724,10 @@ fn test_05_checkout_b_new_branch_has_pgbench() {
     );
 
     let workspace_path = read_workspace_path(repo_path);
-    assert!(workspace_path.exists(), "workspace dir should exist: {workspace_path:?}");
+    assert!(
+        workspace_path.exists(),
+        "workspace dir should exist: {workspace_path:?}"
+    );
     assert!(
         workspace_path.to_string_lossy().contains("pgbench-branch"),
         "active workspace should be the new branch's; path: {workspace_path:?}"
@@ -763,7 +770,10 @@ fn test_06_checkout_back_to_main() {
         "HEAD should point to main; got: {head}"
     );
     let workspace_path = read_workspace_path(repo_path);
-    assert!(workspace_path.exists(), "workspace dir should exist: {workspace_path:?}");
+    assert!(
+        workspace_path.exists(),
+        "workspace dir should exist: {workspace_path:?}"
+    );
     assert!(
         workspace_path.to_string_lossy().contains("main/0/data"),
         "checkout main must point at branch workspace workspaces/main/0/data (preserve DB state), not a new snapshot copy; got: {workspace_path:?}"

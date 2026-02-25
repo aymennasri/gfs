@@ -6,7 +6,7 @@ use std::sync::Arc;
 use gfs_domain::ports::compute::{ComputeDefinition, EnvVar, PortMapping};
 use gfs_domain::ports::database_provider::{
     ConnectionParams, DatabaseProvider, DatabaseProviderArg, DatabaseProviderRegistry,
-    ProviderError, Result, SupportedFeature, SIGTERM,
+    ProviderError, Result, SIGTERM, SupportedFeature,
 };
 
 const NAME: &str = "postgres";
@@ -163,16 +163,13 @@ impl DatabaseProvider for PostgresqlProvider {
         SIGTERM
     }
 
-    fn connection_string(&self, params: &ConnectionParams) -> std::result::Result<String, ProviderError> {
-        let user = params
-            .get_env(ENV_USER)
-            .unwrap_or(DEFAULT_USER);
-        let password = params
-            .get_env(ENV_PASSWORD)
-            .unwrap_or(DEFAULT_PASSWORD);
-        let db = params
-            .get_env(ENV_DB)
-            .unwrap_or(DEFAULT_DB);
+    fn connection_string(
+        &self,
+        params: &ConnectionParams,
+    ) -> std::result::Result<String, ProviderError> {
+        let user = params.get_env(ENV_USER).unwrap_or(DEFAULT_USER);
+        let password = params.get_env(ENV_PASSWORD).unwrap_or(DEFAULT_PASSWORD);
+        let db = params.get_env(ENV_DB).unwrap_or(DEFAULT_DB);
         Ok(format!(
             "postgresql://{}:{}@{}:{}/{}",
             user, password, params.host, params.port, db
@@ -340,7 +337,10 @@ mod tests {
         assert_eq!(commands.len(), 1);
         let cmd = &commands[0];
         assert!(cmd.contains("PGPASSWORD="), "uses password from env");
-        assert!(cmd.contains("-h 127.0.0.1"), "uses TCP to avoid peer auth in docker exec");
+        assert!(
+            cmd.contains("-h 127.0.0.1"),
+            "uses TCP to avoid peer auth in docker exec"
+        );
         assert!(cmd.contains("$POSTGRES_USER"));
         assert!(cmd.contains("$POSTGRES_DB"));
         assert!(cmd.contains("CHECKPOINT;"));

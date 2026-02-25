@@ -77,7 +77,12 @@ mod tests {
         // Write HEAD file with branch reference
         fs::write(
             working_dir.join(GFS_DIR).join(HEAD_FILE),
-            format!("ref: {}/{}/{}", REFS_DIR, HEADS_DIR, crate::model::layout::MAIN_BRANCH),
+            format!(
+                "ref: {}/{}/{}",
+                REFS_DIR,
+                HEADS_DIR,
+                crate::model::layout::MAIN_BRANCH
+            ),
         )
         .unwrap();
 

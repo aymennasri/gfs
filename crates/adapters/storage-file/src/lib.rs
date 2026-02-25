@@ -42,8 +42,8 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use gfs_domain::ports::storage::{
-    CloneOptions, MountStatus, Quota, Result, Snapshot, SnapshotId, SnapshotOptions, StoragePort,
-    StorageError, VolumeId, VolumeStatus,
+    CloneOptions, MountStatus, Quota, Result, Snapshot, SnapshotId, SnapshotOptions, StorageError,
+    StoragePort, VolumeId, VolumeStatus,
 };
 use tokio::process::Command;
 use tracing::instrument;
@@ -173,7 +173,12 @@ async fn copy_dir(src: &str, dst: &str) -> Result<()> {
     let (prog, args): (&str, Vec<&str>) = {
         // robocopy exit codes 0–7 mean success (7 = all ok + some files skipped).
         // We handle the exit code check manually below.
-        ("robocopy", vec![src, dst, "/E", "/COPYALL", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"])
+        (
+            "robocopy",
+            vec![
+                src, dst, "/E", "/COPYALL", "/NFL", "/NDL", "/NJH", "/NJS", "/NP",
+            ],
+        )
     };
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -187,11 +192,7 @@ async fn copy_dir(src: &str, dst: &str) -> Result<()> {
 
     // robocopy uses non-zero exit codes (1–7) for success on Windows.
     #[cfg(target_os = "windows")]
-    let success = output
-        .status
-        .code()
-        .map(|c| c <= 7)
-        .unwrap_or(false);
+    let success = output.status.code().map(|c| c <= 7).unwrap_or(false);
 
     #[cfg(not(target_os = "windows"))]
     let success = output.status.success();
@@ -204,7 +205,11 @@ async fn copy_dir(src: &str, dst: &str) -> Result<()> {
             src,
             dst,
             stderr.trim(),
-            if stderr.as_ref().is_empty() { stdout.trim().to_string() } else { String::new() }
+            if stderr.as_ref().is_empty() {
+                stdout.trim().to_string()
+            } else {
+                String::new()
+            }
         )));
     }
     Ok(())
@@ -308,11 +313,11 @@ impl StoragePort for FileStorage {
         make_read_only(&dest).await?;
 
         Ok(Snapshot {
-            id:         SnapshotId(dest.to_string_lossy().into_owned()),
-            volume_id:  id.clone(),
+            id: SnapshotId(dest.to_string_lossy().into_owned()),
+            volume_id: id.clone(),
             created_at: chrono::Utc::now(),
             size_bytes: 0,
-            label:      options.label,
+            label: options.label,
         })
     }
 
@@ -342,11 +347,11 @@ impl StoragePort for FileStorage {
 
         let target_path = PathBuf::from(&target_id.0);
         Ok(VolumeStatus {
-            id:          target_id,
+            id: target_id,
             mount_point: Some(target_path),
-            status:      MountStatus::Mounted,
-            size_bytes:  0,
-            used_bytes:  0,
+            status: MountStatus::Mounted,
+            size_bytes: 0,
+            used_bytes: 0,
         })
     }
 
@@ -382,13 +387,21 @@ impl StoragePort for FileStorage {
         #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
             let exists = tokio::fs::metadata(&id.0).await.is_ok();
-            let status = if exists { MountStatus::Mounted } else { MountStatus::Unmounted };
+            let status = if exists {
+                MountStatus::Mounted
+            } else {
+                MountStatus::Unmounted
+            };
             Ok(VolumeStatus {
-                id:          id.clone(),
-                mount_point: if exists { Some(PathBuf::from(&id.0)) } else { None },
+                id: id.clone(),
+                mount_point: if exists {
+                    Some(PathBuf::from(&id.0))
+                } else {
+                    None
+                },
                 status,
-                size_bytes:  0,
-                used_bytes:  0,
+                size_bytes: 0,
+                used_bytes: 0,
             })
         }
     }
@@ -432,10 +445,10 @@ impl StoragePort for FileStorage {
         #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
             Ok(Quota {
-                volume_id:   id.clone(),
+                volume_id: id.clone(),
                 limit_bytes: 0,
-                used_bytes:  0,
-                free_bytes:  0,
+                used_bytes: 0,
+                free_bytes: 0,
             })
         }
     }
@@ -517,14 +530,14 @@ fn parse_df_kb_output(id: &VolumeId, output: &str) -> Result<Quota> {
     }
 
     let total_kb: u64 = parts[1].parse().unwrap_or(0);
-    let used_kb: u64  = parts[2].parse().unwrap_or(0);
-    let free_kb: u64  = parts[3].parse().unwrap_or(0);
+    let used_kb: u64 = parts[2].parse().unwrap_or(0);
+    let free_kb: u64 = parts[3].parse().unwrap_or(0);
 
     Ok(Quota {
-        volume_id:   id.clone(),
+        volume_id: id.clone(),
         limit_bytes: total_kb * 1024,
-        used_bytes:  used_kb  * 1024,
-        free_bytes:  free_kb  * 1024,
+        used_bytes: used_kb * 1024,
+        free_bytes: free_kb * 1024,
     })
 }
 
@@ -571,9 +584,9 @@ async fn status_linux(id: &VolumeId) -> Result<VolumeStatus> {
     };
 
     Ok(VolumeStatus {
-        id:          id.clone(),
+        id: id.clone(),
         mount_point: Some(PathBuf::from(&id.0)),
-        status:      MountStatus::Mounted,
+        status: MountStatus::Mounted,
         size_bytes,
         used_bytes,
     })
@@ -608,14 +621,14 @@ async fn quota_linux(id: &VolumeId) -> Result<Quota> {
     }
 
     let total: u64 = parts[1].parse().unwrap_or(0);
-    let used: u64  = parts[2].parse().unwrap_or(0);
-    let free: u64  = parts[3].parse().unwrap_or(0);
+    let used: u64 = parts[2].parse().unwrap_or(0);
+    let free: u64 = parts[3].parse().unwrap_or(0);
 
     Ok(Quota {
-        volume_id:   id.clone(),
+        volume_id: id.clone(),
         limit_bytes: total,
-        used_bytes:  used,
-        free_bytes:  free,
+        used_bytes: used,
+        free_bytes: free,
     })
 }
 
@@ -668,10 +681,10 @@ async fn status_windows(id: &VolumeId) -> Result<VolumeStatus> {
     };
 
     Ok(VolumeStatus {
-        id:          id.clone(),
+        id: id.clone(),
         mount_point: Some(PathBuf::from(&id.0)),
-        status:      MountStatus::Mounted,
-        size_bytes:  0,
+        status: MountStatus::Mounted,
+        size_bytes: 0,
         used_bytes,
     })
 }
@@ -700,13 +713,16 @@ async fn quota_windows(id: &VolumeId) -> Result<Quota> {
     let line = stdout.trim().trim_matches('"');
     let mut parts = line.split("\",\"");
     let used: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let free: u64 = parts.next().and_then(|s| s.trim_end_matches('"').parse().ok()).unwrap_or(0);
+    let free: u64 = parts
+        .next()
+        .and_then(|s| s.trim_end_matches('"').parse().ok())
+        .unwrap_or(0);
 
     Ok(Quota {
-        volume_id:   id.clone(),
+        volume_id: id.clone(),
         limit_bytes: used + free,
-        used_bytes:  used,
-        free_bytes:  free,
+        used_bytes: used,
+        free_bytes: free,
     })
 }
 
@@ -754,8 +770,13 @@ mod tests {
         let src = make_source();
         let dst = {
             let mut p = std::env::temp_dir();
-            p.push(format!("gfs-snap-dst-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
+            p.push(format!(
+                "gfs-snap-dst-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
             p
         };
 
@@ -765,14 +786,21 @@ mod tests {
             label: Some(dst.to_string_lossy().into_owned()),
         };
 
-        let snap = storage.snapshot(&vol_id, opts).await.expect("snapshot failed");
+        let snap = storage
+            .snapshot(&vol_id, opts)
+            .await
+            .expect("snapshot failed");
         assert_eq!(snap.volume_id, vol_id);
         assert!(dst.join("hello.txt").exists(), "file missing in snapshot");
 
         // cleanup
         #[cfg(unix)]
         {
-            Command::new("chmod").args(["-R", "u+w", dst.to_str().unwrap()]).output().await.ok();
+            Command::new("chmod")
+                .args(["-R", "u+w", dst.to_str().unwrap()])
+                .output()
+                .await
+                .ok();
         }
         fs::remove_dir_all(&src).ok();
         fs::remove_dir_all(&dst).ok();
@@ -783,8 +811,13 @@ mod tests {
         let src = make_source();
         let dst = {
             let mut p = std::env::temp_dir();
-            p.push(format!("gfs-clone-dst-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
+            p.push(format!(
+                "gfs-clone-dst-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
             p
         };
 
@@ -808,8 +841,13 @@ mod tests {
         let src = make_source();
         let dst = {
             let mut p = std::env::temp_dir();
-            p.push(format!("gfs-ro-dst-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
+            p.push(format!(
+                "gfs-ro-dst-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
             p
         };
 
@@ -819,7 +857,10 @@ mod tests {
             label: Some(dst.to_string_lossy().into_owned()),
         };
 
-        storage.snapshot(&vol_id, opts).await.expect("snapshot failed");
+        storage
+            .snapshot(&vol_id, opts)
+            .await
+            .expect("snapshot failed");
 
         // Writing into the snapshot should fail (permission denied).
         let write_result = fs::write(dst.join("new.txt"), b"oops");
@@ -831,7 +872,11 @@ mod tests {
         // cleanup
         #[cfg(unix)]
         {
-            Command::new("chmod").args(["-R", "u+w", dst.to_str().unwrap()]).output().await.ok();
+            Command::new("chmod")
+                .args(["-R", "u+w", dst.to_str().unwrap()])
+                .output()
+                .await
+                .ok();
         }
         fs::remove_dir_all(&src).ok();
         fs::remove_dir_all(&dst).ok();

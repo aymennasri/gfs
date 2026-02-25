@@ -43,7 +43,7 @@ pub use resultset::{
 pub use roles::Role;
 pub use schema::Schema;
 pub use table_privileges::{
-    TablePrivilegeGrant, TablePrivileges, TablePrivilegesKind, TablePrivilegeType,
+    TablePrivilegeGrant, TablePrivilegeType, TablePrivileges, TablePrivilegesKind,
 };
 pub use tables::{Table, TablePrimaryKey, TableRelationship};
 pub use triggers::Trigger;

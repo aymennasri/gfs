@@ -1,5 +1,5 @@
-pub mod cmd_commit;
 pub mod cmd_checkout;
+pub mod cmd_commit;
 pub mod cmd_compute;
 pub mod cmd_config;
 pub mod cmd_init;

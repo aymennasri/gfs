@@ -38,15 +38,15 @@ pub enum CheckoutRepoError {
 /// Resolves the revision, runs checkout, and returns the full commit hash.
 pub struct CheckoutRepoUseCase<R: DatabaseProviderRegistry> {
     repository: Arc<dyn Repository>,
-    compute:    Arc<dyn Compute>,
-    registry:   Arc<R>,
+    compute: Arc<dyn Compute>,
+    registry: Arc<R>,
 }
 
 impl<R: DatabaseProviderRegistry> CheckoutRepoUseCase<R> {
     pub fn new(
         repository: Arc<dyn Repository>,
-        compute:    Arc<dyn Compute>,
-        registry:   Arc<R>,
+        compute: Arc<dyn Compute>,
+        registry: Arc<R>,
     ) -> Self {
         Self {
             repository,
@@ -89,7 +89,8 @@ impl<R: DatabaseProviderRegistry> CheckoutRepoUseCase<R> {
         let commit_hash = self.do_checkout(&path, &revision, create_branch).await?;
 
         if let Some(ref id) = container_id {
-            self.ensure_compute_started_after_checkout(&path, id).await?;
+            self.ensure_compute_started_after_checkout(&path, id)
+                .await?;
         }
 
         Ok(commit_hash)
@@ -115,11 +116,9 @@ impl<R: DatabaseProviderRegistry> CheckoutRepoUseCase<R> {
             };
             let commit_hash = self.repository.rev_parse(path, &start_rev).await?;
             if commit_hash == "0" {
-                return Err(CheckoutRepoError::Repository(
-                    RepositoryError::Internal(
-                        "cannot create branch: start revision has no commits".to_string(),
-                    ),
-                ));
+                return Err(CheckoutRepoError::Repository(RepositoryError::Internal(
+                    "cannot create branch: start revision has no commits".to_string(),
+                )));
             }
             self.repository
                 .create_branch(path, &branch_name, &commit_hash)
@@ -146,12 +145,12 @@ impl<R: DatabaseProviderRegistry> CheckoutRepoUseCase<R> {
         path: &Path,
         instance_id: &InstanceId,
     ) -> std::result::Result<(), CheckoutRepoError> {
-        let active = self
-            .repository
-            .get_active_workspace_data_dir(path)
-            .await?;
+        let active = self.repository.get_active_workspace_data_dir(path).await?;
         let active_str = active.to_string_lossy().into_owned();
-        tracing::info!("ensure_compute_started_after_checkout: active_workspace={:?}", active);
+        tracing::info!(
+            "ensure_compute_started_after_checkout: active_workspace={:?}",
+            active
+        );
 
         let environment = match self.repository.get_environment_config(path).await? {
             Some(e) if !e.database_provider.is_empty() => e,
@@ -183,31 +182,31 @@ impl<R: DatabaseProviderRegistry> CheckoutRepoUseCase<R> {
             .flatten()
             .map(|p| p.to_string_lossy().into_owned());
 
-        tracing::info!("ensure_compute_started_after_checkout: current_bind={:?}, paths_differ={}", current_bind, paths_differ(&active_str, current_bind.as_deref().unwrap_or("")));
+        tracing::info!(
+            "ensure_compute_started_after_checkout: current_bind={:?}, paths_differ={}",
+            current_bind,
+            paths_differ(&active_str, current_bind.as_deref().unwrap_or(""))
+        );
 
         if !paths_differ(&active_str, current_bind.as_deref().unwrap_or("")) {
             tracing::info!("ensure_compute_started_after_checkout: starting existing container");
-            let _ = self
-                .compute
-                .start(instance_id, Default::default())
-                .await?;
+            let _ = self.compute.start(instance_id, Default::default()).await?;
             return Ok(());
         }
 
-        tracing::info!("ensure_compute_started_after_checkout: removing old container and creating new one");
+        tracing::info!(
+            "ensure_compute_started_after_checkout: removing old container and creating new one"
+        );
         self.compute.remove_instance(instance_id).await?;
         let new_id = self.compute.provision(&definition).await?;
-        let _ = self
-            .compute
-            .start(&new_id, Default::default())
-            .await?;
+        let _ = self.compute.start(&new_id, Default::default()).await?;
         self.repository
             .update_runtime_config(
                 path,
                 RuntimeConfig {
                     runtime_provider: "docker".to_string(),
-                    runtime_version:  "24".to_string(),
-                    container_name:   new_id.0.clone(),
+                    runtime_version: "24".to_string(),
+                    container_name: new_id.0.clone(),
                 },
             )
             .await?;

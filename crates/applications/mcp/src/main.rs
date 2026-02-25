@@ -12,11 +12,11 @@ use std::net::SocketAddr;
 
 use axum::Router;
 use gfs_mcp::GfsMcpHandler;
-use rmcp::transport::{
-    streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
-    stdio, StreamableHttpServerConfig,
-};
 use rmcp::ServiceExt;
+use rmcp::transport::{
+    StreamableHttpServerConfig, stdio,
+    streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
+};
 
 fn default_repo_path() -> std::path::PathBuf {
     std::env::var("GFS_REPO_PATH")
@@ -31,10 +31,7 @@ fn parse_transport() -> (bool, u16) {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--http" {
-            let port = args
-                .next()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3000);
+            let port = args.next().and_then(|s| s.parse().ok()).unwrap_or(3000);
             return (true, port);
         }
         if arg == "--stdio" {
@@ -70,7 +67,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-async fn run_stdio(default_repo: std::path::PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn run_stdio(
+    default_repo: std::path::PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!(
         default_repo = %default_repo.display(),
         "gfs-mcp starting (stdio transport)"

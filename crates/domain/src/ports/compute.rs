@@ -84,11 +84,11 @@ impl InstanceState {
 /// Live status of a compute instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceStatus {
-    pub id:         InstanceId,
-    pub state:      InstanceState,
-    pub pid:        Option<u32>,
+    pub id: InstanceId,
+    pub state: InstanceState,
+    pub pid: Option<u32>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub exit_code:  Option<i32>,
+    pub exit_code: Option<i32>,
 }
 
 /// Host, port and env for building a database connection string.
@@ -97,7 +97,7 @@ pub struct InstanceStatus {
 pub struct InstanceConnectionInfo {
     pub host: String,
     pub port: u16,
-    pub env:  Vec<(String, String)>,
+    pub env: Vec<(String, String)>,
 }
 
 /// Options controlling how an instance is started.
@@ -129,8 +129,8 @@ pub struct LogsOptions {
 impl Default for LogsOptions {
     fn default() -> Self {
         Self {
-            tail:   None,
-            since:  None,
+            tail: None,
+            since: None,
             stdout: true,
             stderr: true,
         }
@@ -141,8 +141,8 @@ impl Default for LogsOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub stream:    LogStream,
-    pub message:   String,
+    pub stream: LogStream,
+    pub message: String,
 }
 
 /// Which output stream a log entry originated from.
@@ -157,7 +157,7 @@ pub enum LogStream {
 /// must be supplied at provision/start time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnvVar {
-    pub name:  String,
+    pub name: String,
     pub default: Option<String>,
 }
 
@@ -255,5 +255,3 @@ pub trait Compute: Send + Sync {
     /// Stop the instance if running, then remove it. Used when recreating a container with a new data bind.
     async fn remove_instance(&self, id: &InstanceId) -> Result<()>;
 }
-
-

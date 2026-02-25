@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use gfs_compute_docker::containers;
 use gfs_compute_docker::DockerCompute;
+use gfs_compute_docker::containers;
 use gfs_domain::adapters::gfs_repository::GfsRepository;
 use gfs_domain::ports::compute::Compute;
 use gfs_domain::ports::database_provider::InMemoryDatabaseProviderRegistry;
@@ -18,9 +18,9 @@ use crate::cli_utils::get_repo_dir;
 // ---------------------------------------------------------------------------
 
 pub async fn commit(
-    path:         Option<PathBuf>,
-    message:      String,
-    author:       Option<String>,
+    path: Option<PathBuf>,
+    message: String,
+    author: Option<String>,
     author_email: Option<String>,
 ) -> Result<()> {
     #[cfg(target_os = "macos")]
@@ -43,17 +43,18 @@ pub async fn commit(
 // ---------------------------------------------------------------------------
 
 async fn run(
-    path:         Option<PathBuf>,
-    message:      String,
-    author:       Option<String>,
+    path: Option<PathBuf>,
+    message: String,
+    author: Option<String>,
     author_email: Option<String>,
-    storage:      Arc<dyn StoragePort>,
+    storage: Arc<dyn StoragePort>,
 ) -> Result<()> {
     let repo_path = path.unwrap_or_else(get_repo_dir);
 
     let repository: Arc<dyn Repository> = Arc::new(GfsRepository::new());
-    let compute: Arc<dyn Compute> =
-        Arc::new(DockerCompute::new().map_err(|e| anyhow::anyhow!("failed to connect to Docker: {e}"))?);
+    let compute: Arc<dyn Compute> = Arc::new(
+        DockerCompute::new().map_err(|e| anyhow::anyhow!("failed to connect to Docker: {e}"))?,
+    );
 
     let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
     containers::register_all(registry.as_ref())

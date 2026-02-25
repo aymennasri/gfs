@@ -29,7 +29,10 @@ pub async fn log(
         limit: max_count,
     };
 
-    let commits = use_case.run(repo_path, options).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let commits = use_case
+        .run(repo_path, options)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     for cwr in &commits {
         print_commit_block(cwr);

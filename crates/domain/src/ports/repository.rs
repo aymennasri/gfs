@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::model::commit::{CommitWithRefs, NewCommit};
-use crate::model::config::{EnvironmentConfig, RuntimeConfig};
 use crate::model::config::UserConfig;
+use crate::model::config::{EnvironmentConfig, RuntimeConfig};
 
 // ---------------------------------------------------------------------------
 // Error
@@ -95,7 +95,8 @@ pub trait Repository: Send + Sync {
     async fn get_active_workspace_data_dir(&self, repo: &Path) -> Result<PathBuf>;
 
     /// Persist the environment section (database provider / version) into the repo config.
-    async fn update_environment_config(&self, repo: &Path, config: EnvironmentConfig) -> Result<()>;
+    async fn update_environment_config(&self, repo: &Path, config: EnvironmentConfig)
+    -> Result<()>;
 
     /// Persist the runtime section (e.g. container name/id) into the repo config.
     /// Called after provisioning a database so that commit can pause/unpause the container.

@@ -37,17 +37,21 @@ pub enum InitRepoError {
 /// dyn-compatible (its `register` method uses `impl Into<String>`).
 pub struct InitRepositoryUseCase<R: DatabaseProviderRegistry> {
     repository: Arc<dyn Repository>,
-    compute:    Arc<dyn Compute>,
-    registry:   Arc<R>,
+    compute: Arc<dyn Compute>,
+    registry: Arc<R>,
 }
 
 impl<R: DatabaseProviderRegistry> InitRepositoryUseCase<R> {
     pub fn new(
         repository: Arc<dyn Repository>,
-        compute:    Arc<dyn Compute>,
-        registry:   Arc<R>,
+        compute: Arc<dyn Compute>,
+        registry: Arc<R>,
     ) -> Self {
-        Self { repository, compute, registry }
+        Self {
+            repository,
+            compute,
+            registry,
+        }
     }
 
     /// Initialise the repository and optionally provision a database.
@@ -55,10 +59,10 @@ impl<R: DatabaseProviderRegistry> InitRepositoryUseCase<R> {
     /// When `database_provider` is set, `database_version` must also be set and non-empty.
     pub async fn run(
         &self,
-        path:              PathBuf,
-        mount_point:       Option<String>,
+        path: PathBuf,
+        mount_point: Option<String>,
         database_provider: Option<String>,
-        database_version:  Option<String>,
+        database_version: Option<String>,
     ) -> std::result::Result<(), InitRepoError> {
         self.repository.init(&path, mount_point).await?;
 
@@ -74,8 +78,8 @@ impl<R: DatabaseProviderRegistry> InitRepositoryUseCase<R> {
 
     async fn deploy_database(
         &self,
-        repo_path:        &std::path::Path,
-        provider_name:    String,
+        repo_path: &std::path::Path,
+        provider_name: String,
         database_version: String,
     ) -> std::result::Result<(), InitRepoError> {
         let list = self.registry.list();
@@ -86,15 +90,26 @@ impl<R: DatabaseProviderRegistry> InitRepositoryUseCase<R> {
 
         let provider = matched_name
             .and_then(|name| self.registry.get(&name))
-            .ok_or_else(|| InitRepoError::UnknownDatabaseProvider(
-                format!("'{}'; available: {}", provider_name, list.join(", "))
-            ))?;
+            .ok_or_else(|| {
+                InitRepoError::UnknownDatabaseProvider(format!(
+                    "'{}'; available: {}",
+                    provider_name,
+                    list.join(", ")
+                ))
+            })?;
 
         let mut definition = provider.definition();
-        let base = definition.image.split(':').next().unwrap_or(&definition.image);
+        let base = definition
+            .image
+            .split(':')
+            .next()
+            .unwrap_or(&definition.image);
         definition.image = format!("{}:{}", base, database_version);
 
-        let workspace_data_dir = self.repository.get_workspace_data_dir_for_head(repo_path).await?;
+        let workspace_data_dir = self
+            .repository
+            .get_workspace_data_dir_for_head(repo_path)
+            .await?;
         definition.host_data_dir = Some(workspace_data_dir);
 
         let id = self.compute.provision(&definition).await?;
@@ -106,14 +121,18 @@ impl<R: DatabaseProviderRegistry> InitRepositoryUseCase<R> {
             database_provider: provider_name,
             database_version,
         };
-        self.repository.update_environment_config(repo_path, environment).await?;
+        self.repository
+            .update_environment_config(repo_path, environment)
+            .await?;
 
         let runtime = RuntimeConfig {
             runtime_provider: "docker".to_string(),
-            runtime_version:  "24".to_string(),
-            container_name:   id.0.clone(),
+            runtime_version: "24".to_string(),
+            container_name: id.0.clone(),
         };
-        self.repository.update_runtime_config(repo_path, runtime).await?;
+        self.repository
+            .update_runtime_config(repo_path, runtime)
+            .await?;
 
         tracing::info!("Database deployed; instance id: {}", id);
         Ok(())

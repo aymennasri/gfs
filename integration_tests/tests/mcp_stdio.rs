@@ -18,7 +18,11 @@ fn workspace_root() -> PathBuf {
 fn mcp_stdio_handshake_and_list_tools() {
     let bin = workspace_root()
         .join("target/debug")
-        .join(if cfg!(windows) { "gfs-mcp.exe" } else { "gfs-mcp" });
+        .join(if cfg!(windows) {
+            "gfs-mcp.exe"
+        } else {
+            "gfs-mcp"
+        });
     if !bin.exists() {
         eprintln!("Skipping MCP test: gfs-mcp not found at {}", bin.display());
         eprintln!("Run: cargo build -p gfs-mcp --bin gfs-mcp");
@@ -45,15 +49,18 @@ fn mcp_stdio_handshake_and_list_tools() {
     let mut lines = reader.lines();
 
     // 2. Read initialize response
-    let init_line = lines
-        .next()
-        .expect("read init response")
-        .expect("line");
+    let init_line = lines.next().expect("read init response").expect("line");
     let init_resp: serde_json::Value =
         serde_json::from_str(&init_line).expect("parse init response");
     assert_eq!(init_resp.get("id"), Some(&serde_json::json!(1)));
     let result = init_resp.get("result").expect("result");
-    assert_eq!(result.get("serverInfo").and_then(|s| s.get("name")).and_then(|v| v.as_str()), Some("gfs-mcp"));
+    assert_eq!(
+        result
+            .get("serverInfo")
+            .and_then(|s| s.get("name"))
+            .and_then(|v| v.as_str()),
+        Some("gfs-mcp")
+    );
 
     // 3. Send initialized notification (no id)
     let notif = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
@@ -66,7 +73,10 @@ fn mcp_stdio_handshake_and_list_tools() {
     stdin.flush().expect("flush");
 
     // 5. Read tools/list response
-    let tools_line = lines.next().expect("read tools/list response").expect("line");
+    let tools_line = lines
+        .next()
+        .expect("read tools/list response")
+        .expect("line");
     let tools_resp: serde_json::Value =
         serde_json::from_str(&tools_line).expect("parse tools response");
     assert_eq!(tools_resp.get("id"), Some(&serde_json::json!(2)));
@@ -79,7 +89,11 @@ fn mcp_stdio_handshake_and_list_tools() {
         .iter()
         .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
         .collect();
-    assert!(names.contains(&"list_providers"), "expected list_providers in {:?}", names);
+    assert!(
+        names.contains(&"list_providers"),
+        "expected list_providers in {:?}",
+        names
+    );
     assert!(names.contains(&"status"), "expected status in {:?}", names);
     assert!(names.contains(&"commit"), "expected commit in {:?}", names);
 

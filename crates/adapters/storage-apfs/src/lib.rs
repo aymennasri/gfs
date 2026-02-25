@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use gfs_domain::ports::storage::{
-    CloneOptions, MountStatus, Quota, Result, Snapshot, SnapshotId, SnapshotOptions, StoragePort,
-    StorageError, VolumeId, VolumeStatus,
+    CloneOptions, MountStatus, Quota, Result, Snapshot, SnapshotId, SnapshotOptions, StorageError,
+    StoragePort, VolumeId, VolumeStatus,
 };
 use tokio::process::Command;
 use tracing::instrument;
@@ -171,12 +171,12 @@ impl StoragePort for ApfsStorage {
         }
 
         Ok(Snapshot {
-            id:         SnapshotId(dest.to_string_lossy().into_owned()),
-            volume_id:  id.clone(),
+            id: SnapshotId(dest.to_string_lossy().into_owned()),
+            volume_id: id.clone(),
             created_at: chrono::Utc::now(),
             // COW copies start with 0 unique bytes on APFS.
             size_bytes: 0,
-            label:      options.label,
+            label: options.label,
         })
     }
 
@@ -222,11 +222,11 @@ impl StoragePort for ApfsStorage {
 
         let target_path = PathBuf::from(&target_id.0);
         Ok(VolumeStatus {
-            id:          target_id,
+            id: target_id,
             mount_point: Some(target_path),
-            status:      MountStatus::Mounted,
-            size_bytes:  0,
-            used_bytes:  0,
+            status: MountStatus::Mounted,
+            size_bytes: 0,
+            used_bytes: 0,
         })
     }
 
@@ -336,10 +336,10 @@ fn parse_df_output(id: &VolumeId, output: &str) -> Result<Quota> {
     let free_kb: u64 = parts[3].parse().unwrap_or(0);
 
     Ok(Quota {
-        volume_id:   id.clone(),
+        volume_id: id.clone(),
         limit_bytes: total_kb * 1024,
-        used_bytes:  used_kb * 1024,
-        free_bytes:  free_kb * 1024,
+        used_bytes: used_kb * 1024,
+        free_bytes: free_kb * 1024,
     })
 }
 

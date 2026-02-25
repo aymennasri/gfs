@@ -24,9 +24,7 @@ pub(crate) fn classify(container_id: &str, err: bollard::errors::Error) -> Compu
                         || msg.contains("container already running")
                     {
                         ComputeError::AlreadyRunning(container_id.to_owned())
-                    } else if msg.contains("is not running")
-                        || msg.contains("not running")
-                    {
+                    } else if msg.contains("is not running") || msg.contains("not running") {
                         ComputeError::NotRunning(container_id.to_owned())
                     } else if msg.contains("already paused") {
                         ComputeError::AlreadyPaused(container_id.to_owned())
@@ -39,9 +37,7 @@ pub(crate) fn classify(container_id: &str, err: bollard::errors::Error) -> Compu
                 _ => ComputeError::Internal(message.clone()),
             }
         }
-        bollard::errors::Error::IOError { err } => {
-            ComputeError::Internal(err.to_string())
-        }
+        bollard::errors::Error::IOError { err } => ComputeError::Internal(err.to_string()),
         other => ComputeError::Internal(other.to_string()),
     }
 }

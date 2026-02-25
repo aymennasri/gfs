@@ -15,14 +15,14 @@ use std::process::Stdio;
 use anyhow::{Context, Result};
 use axum::Router;
 use gfs_mcp::GfsMcpHandler;
-use rmcp::transport::{
-    streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
-    stdio, StreamableHttpServerConfig,
-};
 use rmcp::ServiceExt;
+use rmcp::transport::{
+    StreamableHttpServerConfig, stdio,
+    streamable_http_server::{session::local::LocalSessionManager, tower::StreamableHttpService},
+};
 
-use crate::cli_utils::get_repo_dir;
 use crate::McpAction;
+use crate::cli_utils::get_repo_dir;
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -179,7 +179,9 @@ async fn spawn_daemon_process(
 
         println!(
             "MCP daemon started (PID {}, http://127.0.0.1:{}/mcp, repo {}). No authentication required.",
-            pid, port, repo_path.display()
+            pid,
+            port,
+            repo_path.display()
         );
         Ok(())
     } else {
@@ -224,11 +226,17 @@ async fn status(pid_file: &std::path::Path, default_port: u16) -> Result<()> {
     println!("MCP Embedded Handler Status");
     println!();
 
-    let running = pid_file.exists().then(|| read_pid(pid_file).ok().flatten()).flatten();
+    let running = pid_file
+        .exists()
+        .then(|| read_pid(pid_file).ok().flatten())
+        .flatten();
     let running = running.and_then(|pid| process_exists(pid).then_some(pid));
 
     if let Some(pid) = running {
-        println!("Daemon: running (PID {}, http://127.0.0.1:{}/mcp, no auth)", pid, default_port);
+        println!(
+            "Daemon: running (PID {}, http://127.0.0.1:{}/mcp, no auth)",
+            pid, default_port
+        );
     } else if pid_file.exists() {
         println!("Daemon: stopped (use 'gfs mcp stop' to remove stale PID file)");
     } else {
@@ -259,8 +267,14 @@ fn show_version() -> Result<()> {
 
 fn resolve_mcp_binary() -> Result<PathBuf> {
     let current = std::env::current_exe().context("current executable path")?;
-    let parent = current.parent().context("executable has no parent directory")?;
-    let name = if cfg!(windows) { "gfs-mcp.exe" } else { "gfs-mcp" };
+    let parent = current
+        .parent()
+        .context("executable has no parent directory")?;
+    let name = if cfg!(windows) {
+        "gfs-mcp.exe"
+    } else {
+        "gfs-mcp"
+    };
     let path = parent.join(name);
     if path.exists() {
         return Ok(path);

@@ -37,10 +37,23 @@ fn get(repo_path: &std::path::Path, key: &str) -> Result<()> {
     };
 
     let out = match key {
-        KEY_USER_NAME => config.user.as_ref().and_then(|u| u.name.as_deref()).unwrap_or(""),
-        KEY_USER_EMAIL => config.user.as_ref().and_then(|u| u.email.as_deref()).unwrap_or(""),
+        KEY_USER_NAME => config
+            .user
+            .as_ref()
+            .and_then(|u| u.name.as_deref())
+            .unwrap_or(""),
+        KEY_USER_EMAIL => config
+            .user
+            .as_ref()
+            .and_then(|u| u.email.as_deref())
+            .unwrap_or(""),
         _ => {
-            anyhow::bail!("unsupported config key '{}'; supported: {}, {}", key, KEY_USER_NAME, KEY_USER_EMAIL);
+            anyhow::bail!(
+                "unsupported config key '{}'; supported: {}, {}",
+                key,
+                KEY_USER_NAME,
+                KEY_USER_EMAIL
+            );
         }
     };
 
@@ -52,12 +65,18 @@ fn get(repo_path: &std::path::Path, key: &str) -> Result<()> {
 
 fn set(repo_path: &std::path::Path, key: &str, value: &str) -> Result<()> {
     if key != KEY_USER_NAME && key != KEY_USER_EMAIL {
-        anyhow::bail!("unsupported config key '{}'; supported: {}, {}", key, KEY_USER_NAME, KEY_USER_EMAIL);
+        anyhow::bail!(
+            "unsupported config key '{}'; supported: {}, {}",
+            key,
+            KEY_USER_NAME,
+            KEY_USER_EMAIL
+        );
     }
 
     let gfs_dir = repo_path.join(GFS_DIR);
     if !gfs_dir.exists() {
-        repo_layout::init_repo_layout(repo_path, None).map_err(|e| repo_error_to_anyhow(e, repo_path))?;
+        repo_layout::init_repo_layout(repo_path, None)
+            .map_err(|e| repo_error_to_anyhow(e, repo_path))?;
     }
 
     let mut config = GfsConfig::load(repo_path).map_err(|e| repo_error_to_anyhow(e, repo_path))?;
@@ -69,7 +88,9 @@ fn set(repo_path: &std::path::Path, key: &str, value: &str) -> Result<()> {
         _ => unreachable!(),
     }
     config.user = Some(user);
-    config.save(repo_path).map_err(|e| repo_error_to_anyhow(e, repo_path))?;
+    config
+        .save(repo_path)
+        .map_err(|e| repo_error_to_anyhow(e, repo_path))?;
 
     Ok(())
 }

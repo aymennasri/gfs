@@ -35,17 +35,21 @@ pub enum StatusRepoError {
 /// 4. Aggregate into [`StatusResponse`].
 pub struct StatusRepoUseCase<R: DatabaseProviderRegistry> {
     repository: std::sync::Arc<dyn Repository>,
-    compute:    std::sync::Arc<dyn Compute>,
-    registry:   std::sync::Arc<R>,
+    compute: std::sync::Arc<dyn Compute>,
+    registry: std::sync::Arc<R>,
 }
 
 impl<R: DatabaseProviderRegistry> StatusRepoUseCase<R> {
     pub fn new(
         repository: std::sync::Arc<dyn Repository>,
-        compute:    std::sync::Arc<dyn Compute>,
-        registry:   std::sync::Arc<R>,
+        compute: std::sync::Arc<dyn Compute>,
+        registry: std::sync::Arc<R>,
     ) -> Self {
-        Self { repository, compute, registry }
+        Self {
+            repository,
+            compute,
+            registry,
+        }
     }
 
     /// Build the status response for the repository at `path`.
@@ -90,7 +94,9 @@ async fn build_compute_status<R: DatabaseProviderRegistry>(
     active_workspace_data_dir: Option<&str>,
 ) -> (Option<ComputeStatus>, Option<String>) {
     let (env, runtime) = match (environment, runtime) {
-        (Some(e), Some(r)) if !e.database_provider.is_empty() && !r.container_name.is_empty() => (e, r),
+        (Some(e), Some(r)) if !e.database_provider.is_empty() && !r.container_name.is_empty() => {
+            (e, r)
+        }
         _ => return (None, None),
     };
 
@@ -103,18 +109,18 @@ async fn build_compute_status<R: DatabaseProviderRegistry>(
             Ok(status) => {
                 let container_id = status.id.0.clone();
                 let container_status = status.state.as_status_str().to_string();
-                let conn = build_connection_string(compute, registry, &instance_id, provider_name).await;
-                let data_bind = get_data_bind_host_path(compute, registry, &instance_id, provider_name).await;
+                let conn =
+                    build_connection_string(compute, registry, &instance_id, provider_name).await;
+                let data_bind =
+                    get_data_bind_host_path(compute, registry, &instance_id, provider_name).await;
                 (container_status, container_id, conn, data_bind)
             }
-            Err(_) => {
-                (
-                    "not_provisioned".to_string(),
-                    runtime.container_name.clone(),
-                    String::new(),
-                    None,
-                )
-            }
+            Err(_) => (
+                "not_provisioned".to_string(),
+                runtime.container_name.clone(),
+                String::new(),
+                None,
+            ),
         };
 
     let bind_mismatch_warning = match (active_workspace_data_dir, &data_bind_host_path) {
@@ -154,7 +160,11 @@ async fn get_data_bind_host_path<R: DatabaseProviderRegistry>(
     provider_name: &str,
 ) -> Option<String> {
     let provider = registry.get(provider_name)?;
-    let compute_data_path = provider.definition().data_dir.to_string_lossy().into_owned();
+    let compute_data_path = provider
+        .definition()
+        .data_dir
+        .to_string_lossy()
+        .into_owned();
     compute
         .get_instance_data_mount_host_path(instance_id, &compute_data_path)
         .await
@@ -182,7 +192,7 @@ async fn build_connection_string<R: DatabaseProviderRegistry>(
     let params = ConnectionParams {
         host: info.host,
         port: info.port,
-        env:  info.env,
+        env: info.env,
     };
     provider.connection_string(&params).unwrap_or_default()
 }

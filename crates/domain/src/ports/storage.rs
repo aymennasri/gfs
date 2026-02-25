@@ -25,8 +25,8 @@ pub enum StorageError {
 
     #[error("quota exceeded on '{volume}': used {used_bytes} / {limit_bytes} bytes")]
     QuotaExceeded {
-        volume:      String,
-        used_bytes:  u64,
+        volume: String,
+        used_bytes: u64,
         limit_bytes: u64,
     },
 
@@ -76,30 +76,30 @@ pub enum MountStatus {
 /// Point-in-time snapshot metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
-    pub id:         SnapshotId,
-    pub volume_id:  VolumeId,
+    pub id: SnapshotId,
+    pub volume_id: VolumeId,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub size_bytes: u64,
-    pub label:      Option<String>,
+    pub label: Option<String>,
 }
 
 /// Live status of a volume.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeStatus {
-    pub id:          VolumeId,
+    pub id: VolumeId,
     pub mount_point: Option<std::path::PathBuf>,
-    pub status:      MountStatus,
-    pub size_bytes:  u64,
-    pub used_bytes:  u64,
+    pub status: MountStatus,
+    pub size_bytes: u64,
+    pub used_bytes: u64,
 }
 
 /// Disk-usage quota for a volume.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quota {
-    pub volume_id:   VolumeId,
+    pub volume_id: VolumeId,
     pub limit_bytes: u64,
-    pub used_bytes:  u64,
-    pub free_bytes:  u64,
+    pub used_bytes: u64,
+    pub free_bytes: u64,
 }
 
 /// Options for the `snapshot` operation.

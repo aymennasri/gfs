@@ -24,9 +24,9 @@ use serde::Deserialize;
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub node:          NodeConfig,
+    pub node: NodeConfig,
     pub control_plane: ControlPlaneConfig,
-    pub metrics:       MetricsConfig,
+    pub metrics: MetricsConfig,
 }
 
 /// Identity of this data-plane node.
@@ -65,7 +65,7 @@ pub struct MetricsConfig {
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            id:     hostname().unwrap_or_else(|| "unknown".to_string()),
+            id: hostname().unwrap_or_else(|| "unknown".to_string()),
             region: String::new(),
         }
     }
@@ -83,9 +83,10 @@ fn hostname() -> Option<String> {
 impl Default for ControlPlaneConfig {
     fn default() -> Self {
         Self {
-            otel_logs_endpoint:    "http://localhost:7281".to_string(),
-            otel_traces_endpoint:  "http://localhost:7281".to_string(),
-            otel_metrics_endpoint: "http://localhost:7280/api/v1/otel-metrics-v0_1/ingest".to_string(),
+            otel_logs_endpoint: "http://localhost:7281".to_string(),
+            otel_traces_endpoint: "http://localhost:7281".to_string(),
+            otel_metrics_endpoint: "http://localhost:7280/api/v1/otel-metrics-v0_1/ingest"
+                .to_string(),
         }
     }
 }
@@ -113,7 +114,7 @@ impl Config {
     pub fn load(path: Option<&Path>) -> Result<Self> {
         match path {
             Some(p) => Self::from_file(p),
-            None    => Ok(Self::default()),
+            None => Ok(Self::default()),
         }
     }
 }
