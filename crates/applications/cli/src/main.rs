@@ -47,7 +47,12 @@ use gfs_domain::ports::storage::{CloneOptions, SnapshotId, SnapshotOptions, Volu
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "gfs", about = "Guepard CLI", version, propagate_version = true)]
+#[command(
+    name = "gfs",
+    about = "Git For database Systems CLI",
+    version,
+    propagate_version = true
+)]
 struct Cli {
     #[command(subcommand)]
     command: TopLevel,

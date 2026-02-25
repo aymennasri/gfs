@@ -15,13 +15,13 @@ Usage: install.sh [options]
 
 Options:
     -h, --help              Display this help message
-    -v, --version <version> Install a specific version (e.g., 1.0.180)
+    -v, --version <version> Install a specific version (e.g., 0.1.3)
     -b, --binary <path>     Install from a local binary instead of downloading
         --no-modify-path    Don't modify shell config files (.zshrc, .bashrc, etc.)
 
 Examples:
     curl -fsSL https://gfs.guepard.run/install | bash
-    curl -fsSL https://gfs.guepard.run/install | bash -s -- --version 1.0.180
+    curl -fsSL https://gfs.guepard.run/install | bash -s -- --version 0.1.3
     ./install --binary /path/to/gfs
 EOF
 }
@@ -79,29 +79,28 @@ else
     raw_os=$(uname -s)
     os=$(echo "$raw_os" | tr '[:upper:]' '[:lower:]')
     case "$raw_os" in
-      Darwin*) os="darwin" ;;
+      Darwin*) os="macos" ;;
       Linux*) os="linux" ;;
       MINGW*|MSYS*|CYGWIN*) os="windows" ;;
     esac
 
     arch=$(uname -m)
-    if [[ "$arch" == "aarch64" ]]; then
-      arch="arm64"
+    # Normalize architecture names to match GitHub release assets
+    if [[ "$arch" == "arm64" ]]; then
+      arch="aarch64"
     fi
-    if [[ "$arch" == "x86_64" ]]; then
-      arch="x64"
-    fi
+    # Keep x86_64 as is - it matches the release naming
 
-    if [ "$os" = "darwin" ] && [ "$arch" = "x64" ]; then
+    if [ "$os" = "macos" ] && [ "$arch" = "x86_64" ]; then
       rosetta_flag=$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)
       if [ "$rosetta_flag" = "1" ]; then
-        arch="arm64"
+        arch="aarch64"
       fi
     fi
 
     combo="$os-$arch"
     case "$combo" in
-      linux-x64|linux-arm64|darwin-x64|darwin-arm64|windows-x64)
+      linux-x86_64|linux-aarch64|macos-x86_64|macos-aarch64|windows-x86_64)
         ;;
       *)
         echo -e "${RED}Unsupported OS/Arch: $os/$arch${NC}"
@@ -109,63 +108,11 @@ else
         ;;
     esac
 
-    archive_ext=".zip"
-    if [ "$os" = "linux" ]; then
-      archive_ext=".tar.gz"
-    fi
+    # All platforms use .tar.gz in the current release
+    archive_ext=".tar.gz"
 
-    is_musl=false
-    if [ "$os" = "linux" ]; then
-      if [ -f /etc/alpine-release ]; then
-        is_musl=true
-      fi
-
-      if command -v ldd >/dev/null 2>&1; then
-        if ldd --version 2>&1 | grep -qi musl; then
-          is_musl=true
-        fi
-      fi
-    fi
-
-    needs_baseline=false
-    if [ "$arch" = "x64" ]; then
-      if [ "$os" = "linux" ]; then
-        if ! grep -qwi avx2 /proc/cpuinfo 2>/dev/null; then
-          needs_baseline=true
-        fi
-      fi
-
-      if [ "$os" = "darwin" ]; then
-        avx2=$(sysctl -n hw.optional.avx2_0 2>/dev/null || echo 0)
-        if [ "$avx2" != "1" ]; then
-          needs_baseline=true
-        fi
-      fi
-
-      if [ "$os" = "windows" ]; then
-        ps="(Add-Type -MemberDefinition \"[DllImport(\"\"kernel32.dll\"\")] public static extern bool IsProcessorFeaturePresent(int ProcessorFeature);\" -Name Kernel32 -Namespace Win32 -PassThru)::IsProcessorFeaturePresent(40)"
-        out=""
-        if command -v powershell.exe >/dev/null 2>&1; then
-          out=$(powershell.exe -NoProfile -NonInteractive -Command "$ps" 2>/dev/null || true)
-        elif command -v pwsh >/dev/null 2>&1; then
-          out=$(pwsh -NoProfile -NonInteractive -Command "$ps" 2>/dev/null || true)
-        fi
-        out=$(echo "$out" | tr -d '\r' | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
-        if [ "$out" != "true" ] && [ "$out" != "1" ]; then
-          needs_baseline=true
-        fi
-      fi
-    fi
-
-    target="$os-$arch"
-    if [ "$needs_baseline" = "true" ]; then
-      target="$target-baseline"
-    fi
-    if [ "$is_musl" = "true" ]; then
-      target="$target-musl"
-    fi
-
-    filename="$APP-$target$archive_ext"
+    # Build the filename based on the GitHub release naming convention
+    filename="$APP-$os-$arch$archive_ext"
 
 
     if ! command -v curl >/dev/null 2>&1; then
@@ -173,16 +120,9 @@ else
         exit 1
     fi
 
-    if [ "$os" = "linux" ]; then
-        if ! command -v tar >/dev/null 2>&1; then
-             echo -e "${RED}Error: 'tar' is required but not installed.${NC}"
-             exit 1
-        fi
-    else
-        if ! command -v unzip >/dev/null 2>&1; then
-            echo -e "${RED}Error: 'unzip' is required but not installed.${NC}"
-            exit 1
-        fi
+    if ! command -v tar >/dev/null 2>&1; then
+        echo -e "${RED}Error: 'tar' is required but not installed.${NC}"
+        exit 1
     fi
 
     if [ -z "$requested_version" ]; then
@@ -341,11 +281,8 @@ download_and_install() {
         curl -# -L --connect-timeout 30 --max-time 600 -o "$tmp_dir/$filename" "$url"
     fi
 
-    if [ "$os" = "linux" ]; then
-        tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
-    else
-        unzip -q "$tmp_dir/$filename" -d "$tmp_dir"
-    fi
+    # Extract the tar.gz archive (all platforms now use tar.gz)
+    tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
 
     mv "$tmp_dir/gfs" "$INSTALL_DIR"
     chmod 755 "${INSTALL_DIR}/gfs"
@@ -457,11 +394,12 @@ echo -e "${MUTED}▙▌▌▐▖  ▌ ▙▌▌   ▙▌█▌▐▖█▌▙▌
 echo -e "${MUTED}                                   ▄▌           "
 echo -e ""
 echo -e ""
-echo -e "${MUTED}GFS includes free models, to start:${NC}"
+echo -e "${MUTED}GFS uses Docker:${NC}"
 echo -e ""
 echo -e "cd <project>  ${MUTED}# Open directory${NC}"
 echo -e "gfs      ${MUTED}# Run command${NC}"
+echo -e "gfs init --database-provider postgres --database-version 17      ${MUTED}# Init repo${NC}"
 echo -e ""
-echo -e "${MUTED}For more information visit ${NC}https://gfs.guepard.run/docs"
+echo -e "${MUTED}For more information visit ${NC}https://github.com/Guepard-Corp/gfs"
 echo -e ""
 echo -e ""
