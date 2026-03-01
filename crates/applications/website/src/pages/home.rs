@@ -1,5 +1,5 @@
-use leptos::*;
 use crate::components::{CodeTabs, Faq, FeatureCard, Hero, VideoShowcase};
+use leptos::*;
 
 #[component]
 pub fn Home() -> impl IntoView {
@@ -14,34 +14,24 @@ pub fn Home() -> impl IntoView {
                     <h2 class="section-title">"Why GFS?"</h2>
                     <div class="features-grid">
                         <FeatureCard
-                            icon="💾"
-                            title="Commit Database States"
-                            description="Save snapshots of your database with meaningful messages, just like Git commits."
+                            icon="🧪"
+                            title="Experiment with Confidence"
+                            description="Let AI agents experiment freely on databases—rollback anytime. No more fear of breaking things."
                         />
                         <FeatureCard
-                            icon="🌿"
-                            title="Branch & Merge"
-                            description="Create isolated branches for experiments and features, merge them back when ready."
+                            icon="⚡"
+                            title="More Efficient Agents"
+                            description="Prebuilt tools, skills, subagents, and ops for a better Agentic Experience (AX)."
                         />
                         <FeatureCard
-                            icon="⏰"
-                            title="Time Travel"
-                            description="Checkout any previous state of your database instantly. No more manual backups."
+                            icon="📦"
+                            title="Full Isolation"
+                            description="Runs on containers, microVMs, or processes, your database experiments stay isolated and safe."
                         />
                         <FeatureCard
                             icon="🤝"
-                            title="Team Collaboration"
-                            description="Work on database changes with confidence, knowing you can always rollback."
-                        />
-                        <FeatureCard
-                            icon="🐳"
-                            title="Docker Powered"
-                            description="Isolated database environments managed automatically with Docker containers."
-                        />
-                        <FeatureCard
-                            icon="🔄"
-                            title="Instant Rollback"
-                            description="Made a mistake? Rollback to any previous commit in seconds, not hours."
+                            title="Easy for Humans & Agents"
+                            description="Git-like semantics for databases. No new syntax to learn, works naturally for both humans and AI."
                         />
                     </div>
                 </div>
@@ -59,7 +49,7 @@ pub fn Home() -> impl IntoView {
                         <div class="workflow-step">
                             <div class="step-number">"2"</div>
                             <h3>"Make Changes"</h3>
-                            <pre><code>"psql -h localhost -p 5432 -U postgres\n# Make your database changes..."</code></pre>
+                            <pre><code>"gfs query \"SELECT * FROM users LIMIT 3\""</code></pre>
                         </div>
                         <div class="workflow-step">
                             <div class="step-number">"3"</div>
@@ -69,7 +59,7 @@ pub fn Home() -> impl IntoView {
                         <div class="workflow-step">
                             <div class="step-number">"4"</div>
                             <h3>"Time Travel"</h3>
-                            <pre><code>"gfs log\ngfs checkout <commit_hash>"</code></pre>
+                            <pre><code>"gfs log → gfs checkout HEAD~1"</code></pre>
                         </div>
                     </div>
                 </div>

@@ -41,7 +41,7 @@ pub struct Commit {
     pub committer_date: DateTime<Utc>,
 
     // Metadata
-    pub schema: Option<String>,
+    pub schema_hash: Option<String>,
     pub database_provider: Option<String>,
     pub database_version: Option<String>,
 
@@ -89,6 +89,9 @@ pub struct NewCommit {
 
     // DAG
     pub parents: Option<Vec<String>>,
+
+    // Schema
+    pub schema_hash: Option<String>,
 }
 
 /// Diff stats derived from the file list: (files_added, files_deleted, files_modified).
@@ -149,7 +152,7 @@ impl Commit {
             committer: new.committer.clone(),
             committer_email: new.committer_email.clone(),
             committer_date: new.committer_date,
-            schema: None,
+            schema_hash: new.schema_hash.clone(),
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -191,6 +194,7 @@ impl NewCommit {
             committer_date: now,
             snapshot_hash,
             parents,
+            schema_hash: None,
         }
     }
 }

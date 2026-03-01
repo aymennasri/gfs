@@ -21,6 +21,12 @@ pub const OPERATIONS_DIR: &str = "operations";
 /// Full hash remains in refs and HEAD; only the path segment is shortened to keep paths readable.
 pub const SHORT_COMMIT_ID_LEN: usize = 12;
 
+/// Minimum length for short commit hash (git-compatible)
+pub const MIN_SHORT_HASH_LEN: usize = 4;
+
+/// Default display length for short hashes (git-compatible)
+pub const DEFAULT_SHORT_HASH_LEN: usize = 7;
+
 /// Directory segment for a branch's single persistent workspace (e.g. `workspaces/main/0/data`).
 /// One workspace per branch so the database state in that directory is preserved across checkouts.
 pub const BRANCH_WORKSPACE_SEGMENT: &str = "0";

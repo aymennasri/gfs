@@ -45,6 +45,20 @@ pub enum RepoError {
     InvalidConfig(String),
     #[error("revision not found: '{0}'")]
     RevisionNotFound(String),
+    #[error("short hash '{prefix}' is ambiguous\nPossible matches:\n{}", format_matches(.matches))]
+    AmbiguousShortHash {
+        prefix: String,
+        matches: Vec<String>,
+    },
+}
+
+fn format_matches(matches: &[String]) -> String {
+    matches
+        .iter()
+        .take(10) // Limit to 10 for display
+        .map(|h| format!("  {}", h))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 impl RepoError {
@@ -58,5 +72,45 @@ impl RepoError {
 
     pub fn missing_file(path: PathBuf) -> Self {
         RepoError::MissingFile(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_error_no_repo_found_display() {
+        let err = RepoError::no_repo_found(PathBuf::from("/tmp"));
+        assert!(err.to_string().contains(".gfs"));
+        assert!(err.to_string().contains("/tmp"));
+    }
+
+    #[test]
+    fn repo_error_invalid_layout_display() {
+        let err = RepoError::invalid_layout("bad layout".into());
+        assert!(err.to_string().contains("Invalid"));
+        assert!(err.to_string().contains("bad layout"));
+    }
+
+    #[test]
+    fn repo_error_missing_file_display() {
+        let err = RepoError::MissingFile(PathBuf::from(".gfs/HEAD"));
+        assert!(err.to_string().contains("Missing"));
+        assert!(err.to_string().contains("HEAD"));
+    }
+
+    #[test]
+    fn repo_error_revision_not_found_display() {
+        let err = RepoError::RevisionNotFound("main".into());
+        assert!(err.to_string().contains("revision"));
+        assert!(err.to_string().contains("main"));
+    }
+
+    #[test]
+    fn commit_error_creation_error_display() {
+        let err = CommitError::CreationError("test".into());
+        assert!(err.to_string().contains("create commit"));
+        assert!(err.to_string().contains("test"));
     }
 }

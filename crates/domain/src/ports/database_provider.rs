@@ -33,6 +33,9 @@ pub enum ProviderError {
 
     #[error("invalid connection params: {0}")]
     InvalidParams(String),
+
+    #[error("unsupported format: '{0}'")]
+    UnsupportedFormat(String),
 }
 
 pub type Result<T> = std::result::Result<T, RegistryError>;
@@ -82,6 +85,72 @@ pub struct DatabaseProviderArg {
     pub name: String,
     /// Argument value.
     pub value: String,
+}
+
+// ---------------------------------------------------------------------------
+// Import / Export types
+// ---------------------------------------------------------------------------
+
+/// A data format supported by a provider for import/export.
+#[derive(Debug, Clone)]
+pub struct DataFormat {
+    /// Format identifier (e.g. `"sql"`, `"custom"`, `"directory"`).
+    pub id: String,
+    /// Human-readable description of the format.
+    pub description: String,
+    /// Default file extension (e.g. `".sql"`, `".dump"`).
+    pub file_extension: String,
+}
+
+/// Sidecar spec for exporting data from a database.
+///
+/// The provider returns a [`ComputeDefinition`] for an ephemeral tool instance
+/// (e.g. a postgres image that ships `pg_dump`) together with the shell command
+/// to run inside it. The orchestrator sets `definition.host_data_dir` to the
+/// host directory where the exported file should land.
+#[derive(Debug, Clone)]
+pub struct ExportSpec {
+    /// Compute definition for the tool sidecar.
+    /// `data_dir` = path inside the sidecar where the output file is written.
+    /// `host_data_dir` = set by the orchestrator to the host output directory.
+    pub definition: ComputeDefinition,
+    /// Shell command to execute in the sidecar.
+    pub command: String,
+    /// Name of the output file inside `definition.data_dir`.
+    pub output_filename: String,
+}
+
+/// Sidecar spec for importing data into a database.
+///
+/// The provider returns a [`ComputeDefinition`] for an ephemeral tool instance
+/// together with the shell command to run inside it. The orchestrator sets
+/// `definition.host_data_dir` to the host directory that contains the file to
+/// import.
+#[derive(Debug, Clone)]
+pub struct ImportSpec {
+    /// Compute definition for the tool sidecar.
+    /// `data_dir` = path inside the sidecar where the input file is available.
+    /// `host_data_dir` = set by the orchestrator to the host directory containing the file.
+    pub definition: ComputeDefinition,
+    /// Shell command to execute in the sidecar.
+    pub command: String,
+    /// Expected name of the input file inside `definition.data_dir`.
+    pub input_filename: String,
+}
+
+/// Sidecar spec for extracting schema metadata from a database.
+///
+/// The provider returns a [`ComputeDefinition`] for an ephemeral tool instance
+/// (e.g. postgres image with psql) and a shell command that runs schema
+/// extraction queries and outputs results to stdout. The orchestrator runs
+/// the task linked to the database container and parses the output.
+#[derive(Debug, Clone)]
+pub struct SchemaExtractionSpec {
+    /// Compute definition for the tool sidecar.
+    pub definition: ComputeDefinition,
+    /// Shell command to execute in the sidecar. Output must use delimiters
+    /// `GFS_SCHEMA_VERSION`, `GFS_SCHEMA_SCHEMAS`, `GFS_SCHEMA_TABLES`, `GFS_SCHEMA_COLUMNS`.
+    pub command: String,
 }
 
 /// Signal number for graceful shutdown. On Unix, 15 = SIGTERM.
@@ -146,6 +215,123 @@ pub trait DatabaseProvider: Send + Sync {
     /// Returns a list of commands to run before taking the snapshot (e.g. `psql -U user -c "CHECKPOINT;"`).
     /// The compute runtime runs these commands in the container before taking the snapshot.
     fn prepare_for_snapshot(&self, params: &ConnectionParams) -> Result<Vec<String>>;
+
+    // -----------------------------------------------------------------------
+    // Import / Export
+    // -----------------------------------------------------------------------
+
+    /// List of formats this provider supports for exporting data.
+    /// Default: empty (provider does not advertise export support).
+    fn supported_export_formats(&self) -> Vec<DataFormat> {
+        vec![]
+    }
+
+    /// List of formats this provider supports for importing data.
+    /// Default: empty (provider does not advertise import support).
+    fn supported_import_formats(&self) -> Vec<DataFormat> {
+        vec![]
+    }
+
+    /// Describe how to export data in the given format as a sidecar task.
+    ///
+    /// Returns a [`ComputeDefinition`] for the tool sidecar, the shell command
+    /// to run inside it, and the output filename. The orchestrator will set
+    /// `definition.host_data_dir` before running the task.
+    ///
+    /// `params` carries the connection info the sidecar uses to reach the
+    /// database instance (host, port, credentials).
+    fn export_spec(
+        &self,
+        _params: &ConnectionParams,
+        format: &str,
+    ) -> std::result::Result<ExportSpec, ProviderError> {
+        Err(ProviderError::UnsupportedFormat(format.to_string()))
+    }
+
+    /// Describe how to import data in the given format as a sidecar task.
+    ///
+    /// Returns a [`ComputeDefinition`] for the tool sidecar, the shell command
+    /// to run inside it, and the expected input filename. The orchestrator will
+    /// set `definition.host_data_dir` before running the task.
+    ///
+    /// `params` carries the connection info the sidecar uses to reach the
+    /// database instance (host, port, credentials).
+    /// `input_filename` is the basename of the file to import (e.g. from the user's `--file` path).
+    fn import_spec(
+        &self,
+        _params: &ConnectionParams,
+        format: &str,
+        _input_filename: &str,
+    ) -> std::result::Result<ImportSpec, ProviderError> {
+        Err(ProviderError::UnsupportedFormat(format.to_string()))
+    }
+
+    // -----------------------------------------------------------------------
+    // Query / Interactive Terminal
+    // -----------------------------------------------------------------------
+
+    /// Build a command to execute a query using the native database client (e.g. psql, mysql).
+    ///
+    /// The returned command is configured to execute `query` against the database
+    /// instance specified by `params`. If `query` is `None`, the command should
+    /// open an interactive terminal session.
+    ///
+    /// The caller is responsible for spawning the command and handling its output.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let cmd = provider.query_client_command(&params, Some("SELECT * FROM users"))?;
+    /// let output = cmd.output()?;
+    /// println!("{}", String::from_utf8_lossy(&output.stdout));
+    /// ```
+    fn query_client_command(
+        &self,
+        params: &ConnectionParams,
+        query: Option<&str>,
+    ) -> std::result::Result<std::process::Command, ProviderError>;
+
+    // -----------------------------------------------------------------------
+    // Schema Extraction
+    // -----------------------------------------------------------------------
+
+    /// Returns SQL queries for extracting schema metadata.
+    ///
+    /// Each query should return JSON output that can be deserialized into
+    /// the corresponding field of [`DatasourceMetadata`](crate::model::datasource::DatasourceMetadata).
+    ///
+    /// Standard query keys:
+    /// - `"version"`: Database version string
+    /// - `"schemas"`: List of schemas/namespaces
+    /// - `"tables"`: List of tables with metadata
+    /// - `"columns"`: List of columns with full metadata
+    /// - `"relationships"`: List of foreign key relationships
+    ///
+    /// Default implementation returns empty map (provider doesn't support schema extraction).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let queries = provider.schema_extraction_queries();
+    /// if let Some(version_query) = queries.get("version") {
+    ///     // Execute query and parse JSON result
+    /// }
+    /// ```
+    fn schema_extraction_queries(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
+
+    /// Return a sidecar spec for schema extraction, or `None` if not supported.
+    ///
+    /// When provided, schema extraction runs inside a container (no host-side
+    /// client tools required). The command must output to stdout with markers:
+    /// `GFS_SCHEMA_VERSION`, `GFS_SCHEMA_SCHEMAS`, `GFS_SCHEMA_TABLES`, `GFS_SCHEMA_COLUMNS`.
+    fn schema_extraction_spec(
+        &self,
+        _params: &ConnectionParams,
+    ) -> std::result::Result<Option<SchemaExtractionSpec>, ProviderError> {
+        Ok(None)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,5 +399,205 @@ impl DatabaseProviderRegistry for InMemoryDatabaseProviderRegistry {
 
     fn unregister(&self, name: &str) -> Option<Arc<dyn DatabaseProvider>> {
         self.providers.write().ok()?.remove(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::PathBuf;
+
+    use crate::ports::compute::ComputeDefinition;
+
+    struct TestProvider {
+        name: String,
+    }
+
+    impl DatabaseProvider for TestProvider {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn definition(&self) -> ComputeDefinition {
+            ComputeDefinition {
+                image: "test:latest".into(),
+                env: vec![],
+                ports: vec![],
+                data_dir: PathBuf::from("/data"),
+                host_data_dir: None,
+                logs_dir: None,
+                conf_dir: None,
+                args: vec![],
+            }
+        }
+        fn default_port(&self) -> u16 {
+            5432
+        }
+        fn default_args(&self) -> Vec<DatabaseProviderArg> {
+            vec![]
+        }
+        fn connection_string(
+            &self,
+            _: &ConnectionParams,
+        ) -> std::result::Result<String, ProviderError> {
+            Ok("test://localhost".into())
+        }
+        fn supported_versions(&self) -> Vec<String> {
+            vec!["latest".into()]
+        }
+        fn supported_features(&self) -> Vec<SupportedFeature> {
+            vec![
+                SupportedFeature {
+                    id: "tls".into(),
+                    description: "TLS support".into(),
+                },
+                SupportedFeature {
+                    id: "schema".into(),
+                    description: "Schema extraction".into(),
+                },
+            ]
+        }
+        fn prepare_for_snapshot(&self, _: &ConnectionParams) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+        fn query_client_command(
+            &self,
+            _: &ConnectionParams,
+            _: Option<&str>,
+        ) -> std::result::Result<std::process::Command, ProviderError> {
+            Ok(std::process::Command::new("true"))
+        }
+    }
+
+    #[test]
+    fn in_memory_registry_register_get_list() {
+        let registry = InMemoryDatabaseProviderRegistry::new();
+        let provider = Arc::new(TestProvider {
+            name: "postgres".into(),
+        });
+        registry.register(provider).unwrap();
+        assert!(registry.get("postgres").is_some());
+        assert_eq!(registry.list(), vec!["postgres"]);
+    }
+
+    #[test]
+    fn in_memory_registry_unregister() {
+        let registry = InMemoryDatabaseProviderRegistry::new();
+        let provider = Arc::new(TestProvider {
+            name: "mysql".into(),
+        });
+        registry.register(provider).unwrap();
+        assert!(registry.get("mysql").is_some());
+        let removed = registry.unregister("mysql");
+        assert!(removed.is_some());
+        assert!(registry.get("mysql").is_none());
+        assert!(registry.list().is_empty());
+    }
+
+    #[test]
+    fn in_memory_registry_empty_list() {
+        let registry = InMemoryDatabaseProviderRegistry::new();
+        assert!(registry.list().is_empty());
+        assert!(registry.get("any").is_none());
+    }
+
+    #[test]
+    fn connection_params_get_env() {
+        let params = ConnectionParams {
+            host: "localhost".into(),
+            port: 5432,
+            env: vec![
+                ("USER".into(), "alice".into()),
+                ("PASSWORD".into(), "secret".into()),
+            ],
+        };
+        assert_eq!(params.get_env("USER"), Some("alice"));
+        assert_eq!(params.get_env("PASSWORD"), Some("secret"));
+        assert_eq!(params.get_env("MISSING"), None);
+    }
+
+    #[test]
+    fn test_provider_version_from_image() {
+        let provider = TestProvider {
+            name: "test".into(),
+        };
+        let def = ComputeDefinition {
+            image: "postgres:16".into(),
+            env: vec![],
+            ports: vec![],
+            data_dir: PathBuf::from("/data"),
+            host_data_dir: None,
+            logs_dir: None,
+            conf_dir: None,
+            args: vec![],
+        };
+        assert_eq!(provider.version_from_image(&def), "16");
+        let def_latest = ComputeDefinition {
+            image: "postgres".into(),
+            env: vec![],
+            ports: vec![],
+            data_dir: PathBuf::from("/data"),
+            host_data_dir: None,
+            logs_dir: None,
+            conf_dir: None,
+            args: vec![],
+        };
+        assert_eq!(provider.version_from_image(&def_latest), "latest");
+    }
+
+    #[test]
+    fn test_provider_default_signal() {
+        let provider = TestProvider {
+            name: "test".into(),
+        };
+        assert_eq!(provider.default_signal(), SIGTERM);
+    }
+
+    #[test]
+    fn registry_error_display() {
+        assert_eq!(
+            RegistryError::AlreadyRegistered("x".into()).to_string(),
+            "definition already registered: 'x'"
+        );
+        assert_eq!(
+            RegistryError::NotFound("y".into()).to_string(),
+            "definition not found: 'y'"
+        );
+        assert_eq!(
+            RegistryError::Internal("z".into()).to_string(),
+            "internal error: z"
+        );
+    }
+
+    #[test]
+    fn test_provider_feature_description() {
+        let provider = TestProvider {
+            name: "test".into(),
+        };
+        assert_eq!(
+            provider.feature_description("tls"),
+            Some("TLS support".into())
+        );
+        assert_eq!(
+            provider.feature_description("schema"),
+            Some("Schema extraction".into())
+        );
+        assert_eq!(provider.feature_description("unknown"), None);
+    }
+
+    #[test]
+    fn provider_error_display() {
+        assert_eq!(
+            ProviderError::MissingEnvVar("X".into()).to_string(),
+            "missing required env var for connection string: 'X'"
+        );
+        assert_eq!(
+            ProviderError::InvalidParams("bad".into()).to_string(),
+            "invalid connection params: bad"
+        );
+        assert_eq!(
+            ProviderError::UnsupportedFormat("xyz".into()).to_string(),
+            "unsupported format: 'xyz'"
+        );
     }
 }

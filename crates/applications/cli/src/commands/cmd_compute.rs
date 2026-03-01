@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use gfs_compute_docker::DockerCompute;
@@ -8,10 +9,10 @@ use gfs_domain::ports::database_provider::{
     DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry,
 };
 use gfs_domain::repo_utils::repo_layout;
-use std::sync::Arc;
 
-use crate::ComputeAction;
 use crate::cli_utils::{get_repo_dir, relativize_to_repo};
+use crate::output::{dimmed, green, red, yellow};
+use crate::ComputeAction;
 
 // ---------------------------------------------------------------------------
 // Entry point called from main
@@ -173,8 +174,8 @@ async fn dispatch(
 // ---------------------------------------------------------------------------
 
 fn print_status(s: &InstanceStatus) {
-    println!("id          : {}", s.id);
-    println!("state       : {}", format_state(&s.state));
+    println!("id          : {}", dimmed(&s.id.0));
+    println!("state       : {}", format_state_colored(&s.state));
     if let Some(pid) = s.pid {
         println!("pid         : {pid}");
     }
@@ -196,6 +197,18 @@ fn format_state(state: &InstanceState) -> &'static str {
         InstanceState::Restarting => "restarting",
         InstanceState::Failed => "failed",
         InstanceState::Unknown => "unknown",
+    }
+}
+
+fn format_state_colored(state: &InstanceState) -> String {
+    let s = format_state(state);
+    match state {
+        InstanceState::Running => format!("{}", green(s)),
+        InstanceState::Starting | InstanceState::Restarting => format!("{}", yellow(s)),
+        InstanceState::Stopped | InstanceState::Stopping | InstanceState::Paused => {
+            format!("{}", dimmed(s))
+        }
+        InstanceState::Failed | InstanceState::Unknown => format!("{}", red(s)),
     }
 }
 

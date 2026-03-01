@@ -8,6 +8,9 @@ use crate::ports::compute::{Compute, ComputeError, InstanceId, InstanceState};
 use crate::ports::database_provider::{ConnectionParams, DatabaseProviderRegistry};
 use crate::ports::repository::{Repository, RepositoryError};
 use crate::ports::storage::{SnapshotOptions, StorageError, StoragePort, VolumeId};
+use crate::repo_utils::repo_layout;
+use crate::usecases::repository::export_repo_usecase::ExportRepoUseCase;
+use crate::usecases::repository::extract_schema_usecase::ExtractSchemaUseCase;
 use crate::utils::hash::hash_snapshot;
 
 // ---------------------------------------------------------------------------
@@ -110,7 +113,15 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
         let resolved_committer_email =
             committer_email.or_else(|| user_config.as_ref().and_then(|u| u.email.clone()));
 
-        // 2. Prepare the database container for snapshotting (if present).
+        // 2. Extract and store schema (best-effort) while the container is still running.
+        //    Must run before pausing, since schema extraction requires a live database connection.
+        let schema_hash = if runtime_config.is_some() && environment.is_some() {
+            self.extract_and_store_schema(&path).await.ok()
+        } else {
+            None
+        };
+
+        // 3. Prepare the database container for snapshotting (if present).
         let mut was_paused = false;
         if let (Some(runtime), Some(env)) = (&runtime_config, &environment) {
             let instance_id = InstanceId(runtime.container_name.clone());
@@ -142,7 +153,7 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
             }
         }
 
-        // 3. Take a storage snapshot.
+        // 4. Take a storage snapshot.
         //    The VolumeId is the mount point of the workspace volume.  When no
         //    explicit mount_point is configured we read .gfs/WORKSPACE which
         //    always points to the directory where the database is currently
@@ -174,7 +185,7 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
             )
             .await?;
 
-        // 4. Build the new commit.
+        // 5. Build the new commit.
         //    Use "0" parent when this is the very first real commit.
         let parents = if parent_commit_id == "0" {
             None
@@ -182,7 +193,7 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
             Some(vec![parent_commit_id])
         };
 
-        let new_commit = NewCommit::new(
+        let mut new_commit = NewCommit::new(
             message,
             resolved_author,
             resolved_author_email,
@@ -191,11 +202,12 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
             snapshot_hash,
             parents,
         );
+        new_commit.schema_hash = schema_hash;
 
-        // 5. Persist the commit object and advance the branch ref.
+        // 6. Persist the commit object and advance the branch ref.
         let commit_hash = self.repository.commit(&path, new_commit).await?;
 
-        // 6. Unpause the container if we paused it.
+        // 7. Unpause the container if we paused it.
         if was_paused && let Some(runtime) = &runtime_config {
             let instance_id = InstanceId(runtime.container_name.clone());
             self.compute.unpause(&instance_id).await?;
@@ -203,6 +215,56 @@ impl<R: DatabaseProviderRegistry> CommitRepoUseCase<R> {
 
         tracing::info!("Commit created: {}", commit_hash);
         Ok(commit_hash)
+    }
+
+    /// Extract and store schema for the current database state.
+    /// Returns the schema hash on success, or None if extraction fails.
+    /// This is best-effort - failures are logged but don't fail the commit.
+    async fn extract_and_store_schema(
+        &self,
+        repo_path: &std::path::Path,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        tracing::debug!("Extracting schema for commit");
+
+        // 1. Extract schema metadata using ExtractSchemaUseCase.
+        let extract_use_case = ExtractSchemaUseCase::new(self.compute.clone(), self.registry.clone());
+        let schema_output = extract_use_case.run(repo_path).await.map_err(|e| {
+            tracing::warn!("Schema extraction failed: {}", e);
+            e
+        })?;
+
+        // 2. Export schema DDL using ExportRepoUseCase with "schema" format.
+        let export_use_case = ExportRepoUseCase::new(self.compute.clone(), self.registry.clone());
+        let temp_dir = std::env::temp_dir().join(format!(
+            "gfs-schema-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let export_output = export_use_case
+            .run(repo_path, temp_dir.clone(), "schema")
+            .await
+            .map_err(|e| {
+                tracing::warn!("Schema DDL export failed: {}", e);
+                e
+            })?;
+
+        let schema_sql = std::fs::read_to_string(&export_output.file_path).map_err(|e| {
+            tracing::warn!("Failed to read exported schema DDL: {}", e);
+            e
+        })?;
+
+        // 3. Store schema object in repo.
+        let schema_hash = repo_layout::write_schema_object(repo_path, &schema_output.metadata, &schema_sql)
+            .map_err(|e| {
+                tracing::warn!("Failed to write schema object: {}", e);
+                e
+            })?;
+
+        // 4. Cleanup temp directory.
+        let _ = std::fs::remove_dir_all(temp_dir);
+
+        tracing::info!("Schema stored with hash: {}", schema_hash);
+        Ok(schema_hash)
     }
 }
 
@@ -529,6 +591,29 @@ mod tests {
         async fn remove_instance(&self, _id: &InstanceId) -> crate::ports::compute::Result<()> {
             Ok(())
         }
+        async fn get_task_connection_info(
+            &self,
+            _id: &InstanceId,
+            compute_port: u16,
+        ) -> crate::ports::compute::Result<crate::ports::compute::InstanceConnectionInfo> {
+            Ok(crate::ports::compute::InstanceConnectionInfo {
+                host: "172.17.0.2".into(),
+                port: compute_port,
+                env: vec![],
+            })
+        }
+        async fn run_task(
+            &self,
+            _definition: &ComputeDefinition,
+            _command: &str,
+            _linked_to: Option<&InstanceId>,
+        ) -> crate::ports::compute::Result<crate::ports::compute::ExecOutput> {
+            Ok(crate::ports::compute::ExecOutput {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -660,6 +745,13 @@ mod tests {
         }
         fn prepare_for_snapshot(&self, _: &ConnectionParams) -> RegistryResult<Vec<String>> {
             Ok(vec![])
+        }
+        fn query_client_command(
+            &self,
+            _: &ConnectionParams,
+            _: Option<&str>,
+        ) -> std::result::Result<std::process::Command, ProviderError> {
+            Ok(std::process::Command::new("true"))
         }
     }
 
@@ -936,5 +1028,146 @@ mod tests {
             storage.last_volume.lock().unwrap().as_deref(),
             Some("/workspace/data")
         );
+    }
+
+    #[tokio::test]
+    async fn commit_user_config_fallback_for_author_committer() {
+        let repo = MockRepository {
+            commit_hash: "uc1".into(),
+            current_commit: "0".into(),
+            mount_point: Some("/vol".into()),
+            user_config: Some(UserConfig {
+                name: Some("Alice".into()),
+                email: Some("alice@example.com".into()),
+            }),
+            ..Default::default()
+        };
+        let storage = Arc::new(MockStorage::new("snap-uc"));
+        let registry = Arc::new(MockRegistry);
+
+        let uc = CommitRepoUseCase::new(
+            Arc::new(repo),
+            Arc::new(MockCompute::default()),
+            storage,
+            registry,
+        );
+
+        let hash = uc
+            .run(
+                existing_repo_path(),
+                "user config test".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("commit should succeed");
+
+        assert_eq!(hash, "uc1");
+    }
+
+    #[tokio::test]
+    async fn commit_canonicalize_failure() {
+        let uc = make_usecase(
+            MockRepository::default(),
+            MockCompute::default(),
+            MockStorage::new("snap"),
+        );
+        let result = uc
+            .run(
+                PathBuf::from("/nonexistent/path/that/does/not/exist"),
+                "msg".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(CommitRepoError::Repository(_))));
+    }
+
+    #[tokio::test]
+    async fn commit_storage_error() {
+        struct FailingStorage;
+
+        #[async_trait]
+        impl crate::ports::storage::StoragePort for FailingStorage {
+            async fn mount(
+                &self,
+                _: &VolumeId,
+                _: &std::path::Path,
+            ) -> crate::ports::storage::Result<()> {
+                Ok(())
+            }
+            async fn unmount(&self, _: &VolumeId) -> crate::ports::storage::Result<()> {
+                Ok(())
+            }
+            async fn snapshot(
+                &self,
+                _: &VolumeId,
+                _: SnapshotOptions,
+            ) -> crate::ports::storage::Result<Snapshot> {
+                Err(crate::ports::storage::StorageError::Internal(
+                    "storage failed".into(),
+                ))
+            }
+            async fn clone(
+                &self,
+                _: &VolumeId,
+                target: VolumeId,
+                _: CloneOptions,
+            ) -> crate::ports::storage::Result<VolumeStatus> {
+                Ok(VolumeStatus {
+                    id: target,
+                    mount_point: None,
+                    status: MountStatus::Unmounted,
+                    size_bytes: 0,
+                    used_bytes: 0,
+                })
+            }
+            async fn status(&self, id: &VolumeId) -> crate::ports::storage::Result<VolumeStatus> {
+                Ok(VolumeStatus {
+                    id: id.clone(),
+                    mount_point: None,
+                    status: MountStatus::Unmounted,
+                    size_bytes: 0,
+                    used_bytes: 0,
+                })
+            }
+            async fn quota(&self, id: &VolumeId) -> crate::ports::storage::Result<Quota> {
+                Ok(Quota {
+                    volume_id: id.clone(),
+                    limit_bytes: 0,
+                    used_bytes: 0,
+                    free_bytes: 0,
+                })
+            }
+        }
+
+        let repo = MockRepository {
+            commit_hash: "x".into(),
+            current_commit: "0".into(),
+            mount_point: Some("/vol".into()),
+            ..Default::default()
+        };
+        let uc = CommitRepoUseCase::new(
+            Arc::new(repo),
+            Arc::new(MockCompute::default()),
+            Arc::new(FailingStorage),
+            Arc::new(MockRegistry),
+        );
+        let result = uc
+            .run(
+                existing_repo_path(),
+                "storage fail".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(CommitRepoError::Storage(_))));
     }
 }

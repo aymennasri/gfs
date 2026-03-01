@@ -16,6 +16,7 @@ use gfs_domain::ports::repository::Repository;
 use gfs_domain::usecases::repository::checkout_repo_usecase::CheckoutRepoUseCase;
 
 use crate::cli_utils::get_repo_dir;
+use crate::output::{cyan, dimmed, green};
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -53,9 +54,17 @@ pub async fn checkout(
 
     let short_hash = &commit_hash[..7.min(commit_hash.len())];
     if let Some(ref name) = create_branch {
-        println!("Switched to new branch '{}' ({})", name.trim(), short_hash);
+        println!(
+            "Switched to new branch '{}' ({})",
+            green(name.trim()),
+            dimmed(short_hash)
+        );
     } else {
-        println!("Switched to {} ({})", revision.trim(), short_hash);
+        println!(
+            "Switched to {} ({})",
+            cyan(revision.trim()),
+            dimmed(short_hash)
+        );
     }
     Ok(())
 }

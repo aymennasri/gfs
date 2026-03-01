@@ -18,17 +18,23 @@ Options:
     -v, --version <version> Install a specific version (e.g., 0.1.3)
     -b, --binary <path>     Install from a local binary instead of downloading
         --no-modify-path    Don't modify shell config files (.zshrc, .bashrc, etc.)
+        --skip-docker-check Skip Docker installation check and prompt
+        --skip-ai-tools     Skip AI coding tools detection and injection (Cursor, Claude, OpenCode)
 
 Examples:
     curl -fsSL https://gfs.guepard.run/install | bash
     curl -fsSL https://gfs.guepard.run/install | bash -s -- --version 0.1.3
     ./install --binary /path/to/gfs
+    ./install --skip-docker-check   # Skip Docker check (e.g. CI)
+    ./install --skip-ai-tools      # Skip AI tools injection
 EOF
 }
 
 requested_version=${VERSION:-}
 no_modify_path=false
 binary_path=""
+skip_docker_check=false
+skip_ai_tools=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -58,6 +64,14 @@ while [[ $# -gt 0 ]]; do
             no_modify_path=true
             shift
             ;;
+        --skip-docker-check)
+            skip_docker_check=true
+            shift
+            ;;
+        --skip-ai-tools)
+            skip_ai_tools=true
+            shift
+            ;;
         *)
             echo -e "${ORANGE}Warning: Unknown option '$1'${NC}" >&2
             shift
@@ -67,6 +81,148 @@ done
 
 INSTALL_DIR=$HOME/.gfs/bin
 mkdir -p "$INSTALL_DIR"
+
+# Detect platform for Docker check (needed regardless of install mode)
+detect_platform_for_docker() {
+    raw_os=$(uname -s)
+    case "$raw_os" in
+        Darwin*) echo "macos" ;;
+        Linux*) echo "linux" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+check_and_install_docker() {
+    if [[ "$skip_docker_check" == "true" ]]; then
+        return 0
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        docker_version=$(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        if [[ -n "$docker_version" ]]; then
+            echo -e "✅ ${MUTED}Docker detected (version $docker_version).${NC}"
+        else
+            echo -e "✅ ${MUTED}Docker detected.${NC}"
+        fi
+        return 0
+    fi
+
+    local platform
+    platform=$(detect_platform_for_docker)
+
+    echo -e ""
+    echo -e "⚠️  ${ORANGE}Docker is not installed. GFS requires Docker to manage database containers.${NC}"
+    echo -e ""
+    case "$platform" in
+        macos)
+            echo -e "On macOS, you can install Docker Desktop with: ${MUTED}brew install --cask docker${NC}"
+            echo -e "Or download from: https://www.docker.com/products/docker-desktop/"
+            ;;
+        linux)
+            echo -e "On Linux, you can install Docker Engine (docker-ce) using your distribution's package manager."
+            echo -e "Or run: ${MUTED}curl -fsSL https://get.docker.com | sudo sh${NC}"
+            ;;
+        windows)
+            echo -e "On Windows, install Docker Desktop from: https://www.docker.com/products/docker-desktop/"
+            ;;
+        *)
+            echo -e "Please install Docker from: https://docs.docker.com/get-docker/"
+            ;;
+    esac
+    echo -e ""
+    if [ -t 0 ]; then
+        printf "Would you like to install Docker now? [y/N] "
+        read -r response
+        case "$response" in
+            [yY][eE][sS]|[yY])
+                install_docker "$platform"
+                ;;
+            *)
+                echo -e "${MUTED}Skipping Docker installation. You can install it later and run GFS.${NC}"
+                ;;
+        esac
+    else
+        echo -e "${MUTED}Run the installer interactively to get the option to install Docker.${NC}"
+    fi
+}
+
+install_docker() {
+    local platform=$1
+    case "$platform" in
+        macos)
+            if command -v brew >/dev/null 2>&1; then
+                echo -e "${MUTED}Installing Docker Desktop via Homebrew...${NC}"
+                brew install --cask docker
+                echo -e "${NC}Docker Desktop installed. You may need to open Docker from Applications to start the daemon.${NC}"
+            else
+                echo -e "${RED}Homebrew is required to install Docker on macOS.${NC}"
+                echo -e "Install Homebrew: https://brew.sh"
+                echo -e "Or download Docker Desktop: https://www.docker.com/products/docker-desktop/"
+            fi
+            ;;
+        linux)
+            if command -v curl >/dev/null 2>&1; then
+                echo -e "${MUTED}Installing Docker Engine via get.docker.com...${NC}"
+                if curl -fsSL https://get.docker.com | sudo sh; then
+                    echo -e "${NC}Docker installed. You may need to add your user to the 'docker' group: ${MUTED}sudo usermod -aG docker \$USER${NC}"
+                else
+                    echo -e "${RED}Docker installation failed. Try manually: https://docs.docker.com/engine/install/${NC}"
+                fi
+            else
+                echo -e "${RED}curl is required to install Docker. Install curl first.${NC}"
+            fi
+            ;;
+        windows)
+            echo -e "${ORANGE}On Windows, please install Docker Desktop manually:${NC}"
+            echo -e "https://www.docker.com/products/docker-desktop/"
+            ;;
+        *)
+            echo -e "${ORANGE}Please install Docker manually: https://docs.docker.com/get-docker/${NC}"
+            ;;
+    esac
+}
+
+check_and_install_docker
+
+# Detect AI coding tools and print summary (like Docker)
+detect_ai_coding_tools() {
+    local detected=()
+    # Cursor
+    if [[ -d "$HOME/.cursor" ]] || [[ -f "$HOME/.cursor/mcp.json" ]]; then
+        detected+=("Cursor")
+    fi
+    # Claude (platform-specific)
+    if [[ "$(uname -s)" == "Darwin"* ]] && [[ -d "$HOME/Library/Application Support/Claude" ]]; then
+        detected+=("Claude")
+    elif [[ -d "${XDG_CONFIG_HOME:-$HOME/.config}/Claude" ]]; then
+        detected+=("Claude")
+    elif [[ -n "${APPDATA:-}" ]] && [[ -d "$APPDATA/Claude" ]]; then
+        detected+=("Claude")
+    fi
+    # OpenCode
+    if [[ -d "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ]] || command -v opencode >/dev/null 2>&1; then
+        detected+=("OpenCode")
+    fi
+    printf '%s\n' "${detected[@]}"
+}
+
+print_ai_tools_detection_summary() {
+    if [[ "$skip_ai_tools" == "true" ]]; then
+        return 0
+    fi
+    local detected
+    detected=($(detect_ai_coding_tools))
+    if [[ ${#detected[@]} -gt 0 ]]; then
+        for tool in "${detected[@]}"; do
+            echo -e "✅ ${MUTED}${tool} detected.${NC}"
+        done
+    else
+        echo -e "${MUTED}No AI coding tools detected (Cursor, Claude, OpenCode).${NC}"
+    fi
+}
+
+print_ai_tools_detection_summary
 
 # If --binary is provided, skip all download/detection logic
 if [ -n "$binary_path" ]; then
@@ -386,6 +542,126 @@ if [ -n "${GITHUB_ACTIONS-}" ] && [ "${GITHUB_ACTIONS}" == "true" ]; then
     echo "$INSTALL_DIR" >> $GITHUB_PATH
     print_message info "Added $INSTALL_DIR to \$GITHUB_PATH"
 fi
+
+# Inject AI tools (skills, agents, MCP) for detected tools - only when installing from release
+inject_ai_tools() {
+    if [[ "$skip_ai_tools" == "true" ]]; then
+        return 0
+    fi
+    if [[ "${specific_version:-}" == "local" ]]; then
+        return 0
+    fi
+    local detected
+    detected=($(detect_ai_coding_tools))
+    if [[ ${#detected[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    local ai_tools_url="https://github.com/Guepard-Corp/gfs/releases/download/v${specific_version}/gfs-ai-tools-${specific_version}.tar.gz"
+    local tmp_dir="${TMPDIR:-/tmp}/gfs_ai_tools_$$"
+    mkdir -p "$tmp_dir"
+
+    if ! curl -fsSL -o "$tmp_dir/gfs-ai-tools.tar.gz" "$ai_tools_url" 2>/dev/null; then
+        echo -e "${MUTED}AI tools asset not found for v${specific_version}. Skipping injection.${NC}"
+        rm -rf "$tmp_dir"
+        return 0
+    fi
+
+    if ! tar -xzf "$tmp_dir/gfs-ai-tools.tar.gz" -C "$tmp_dir" 2>/dev/null; then
+        echo -e "${MUTED}Failed to extract AI tools. Skipping injection.${NC}"
+        rm -rf "$tmp_dir"
+        return 0
+    fi
+
+    local release_url="https://github.com/Guepard-Corp/gfs/releases/tag/v${specific_version}"
+    local injected=()
+    local mcp_configured=()
+
+    # GFS MCP config JSON fragment
+    local gfs_mcp_json="\"gfs\": {\"command\": \"$INSTALL_DIR/gfs\", \"args\": [\"mcp\"]}"
+    local gfs_mcp_opencode_json="\"gfs\": {\"command\": \"$INSTALL_DIR/gfs\", \"args\": [\"mcp\"], \"enabled\": true}"
+
+    for tool in "${detected[@]}"; do
+        case "$tool" in
+            Cursor)
+                mkdir -p "$HOME/.cursor/skills/use-gfs-cli" "$HOME/.cursor/skills/use-gfs-mcp" "$HOME/.cursor/agents"
+                [[ -f "$tmp_dir/skills/use-gfs-cli/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-cli/SKILL.md" "$HOME/.cursor/skills/use-gfs-cli/" && injected+=("$HOME/.cursor/skills/use-gfs-cli/SKILL.md")
+                [[ -f "$tmp_dir/skills/use-gfs-mcp/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-mcp/SKILL.md" "$HOME/.cursor/skills/use-gfs-mcp/" && injected+=("$HOME/.cursor/skills/use-gfs-mcp/SKILL.md")
+                [[ -f "$tmp_dir/agents/qwery-agent.md" ]] && cp "$tmp_dir/agents/qwery-agent.md" "$HOME/.cursor/agents/" && injected+=("$HOME/.cursor/agents/qwery-agent.md")
+                if command -v jq >/dev/null 2>&1; then
+                    local mcp_file="$HOME/.cursor/mcp.json"
+                    if [[ ! -f "$mcp_file" ]]; then
+                        echo "{\"mcpServers\": {$gfs_mcp_json}}" | jq . > "$mcp_file" 2>/dev/null || echo "{\"mcpServers\": {$gfs_mcp_json}}" > "$mcp_file"
+                    else
+                        jq --arg cmd "$INSTALL_DIR/gfs" '.mcpServers.gfs = {"command": $cmd, "args": ["mcp"]}' "$mcp_file" > "$mcp_file.tmp" 2>/dev/null && mv "$mcp_file.tmp" "$mcp_file"
+                    fi
+                    mcp_configured+=("Cursor")
+                else
+                    [[ ! -f "$HOME/.cursor/mcp.json" ]] && echo "{\"mcpServers\": {$gfs_mcp_json}}" > "$HOME/.cursor/mcp.json" && mcp_configured+=("Cursor")
+                fi
+                ;;
+            Claude)
+                mkdir -p "$HOME/.claude/skills/use-gfs-cli" "$HOME/.claude/skills/use-gfs-mcp"
+                [[ -f "$tmp_dir/skills/use-gfs-cli/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-cli/SKILL.md" "$HOME/.claude/skills/use-gfs-cli/" && injected+=("$HOME/.claude/skills/use-gfs-cli/SKILL.md")
+                [[ -f "$tmp_dir/skills/use-gfs-mcp/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-mcp/SKILL.md" "$HOME/.claude/skills/use-gfs-mcp/" && injected+=("$HOME/.claude/skills/use-gfs-mcp/SKILL.md")
+                local claude_config
+                if [[ "$(uname -s)" == "Darwin"* ]]; then
+                    claude_config="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+                elif [[ -n "${APPDATA:-}" ]]; then
+                    claude_config="$APPDATA/Claude/claude_desktop_config.json"
+                else
+                    claude_config="${XDG_CONFIG_HOME:-$HOME/.config}/Claude/claude_desktop_config.json"
+                fi
+                mkdir -p "$(dirname "$claude_config")"
+                if command -v jq >/dev/null 2>&1; then
+                    if [[ ! -f "$claude_config" ]]; then
+                        echo "{\"mcpServers\": {$gfs_mcp_json}}" | jq . > "$claude_config" 2>/dev/null || echo "{\"mcpServers\": {$gfs_mcp_json}}" > "$claude_config"
+                    else
+                        jq --arg cmd "$INSTALL_DIR/gfs" '.mcpServers.gfs = {"command": $cmd, "args": ["mcp"]}' "$claude_config" > "$claude_config.tmp" 2>/dev/null && mv "$claude_config.tmp" "$claude_config"
+                    fi
+                    mcp_configured+=("Claude")
+                else
+                    [[ ! -f "$claude_config" ]] && echo "{\"mcpServers\": {$gfs_mcp_json}}" > "$claude_config" && mcp_configured+=("Claude")
+                fi
+                ;;
+            OpenCode)
+                mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/use-gfs-cli" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills/use-gfs-mcp" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/agents"
+                local opencode_base="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+                [[ -f "$tmp_dir/skills/use-gfs-cli/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-cli/SKILL.md" "$opencode_base/skills/use-gfs-cli/" && injected+=("$opencode_base/skills/use-gfs-cli/SKILL.md")
+                [[ -f "$tmp_dir/skills/use-gfs-mcp/SKILL.md" ]] && cp "$tmp_dir/skills/use-gfs-mcp/SKILL.md" "$opencode_base/skills/use-gfs-mcp/" && injected+=("$opencode_base/skills/use-gfs-mcp/SKILL.md")
+                [[ -f "$tmp_dir/agents/qwery-agent.md" ]] && cp "$tmp_dir/agents/qwery-agent.md" "$opencode_base/agents/" && injected+=("$opencode_base/agents/qwery-agent.md")
+                local opencode_config="$opencode_base/opencode.json"
+                if command -v jq >/dev/null 2>&1; then
+                    if [[ ! -f "$opencode_config" ]]; then
+                        echo "{\"mcp\": {$gfs_mcp_opencode_json}}" | jq . > "$opencode_config" 2>/dev/null || echo "{\"mcp\": {$gfs_mcp_opencode_json}}" > "$opencode_config"
+                    else
+                        jq --arg cmd "$INSTALL_DIR/gfs" '.mcp.gfs = {"command": $cmd, "args": ["mcp"], "enabled": true}' "$opencode_config" > "$opencode_config.tmp" 2>/dev/null && mv "$opencode_config.tmp" "$opencode_config"
+                    fi
+                    mcp_configured+=("OpenCode")
+                else
+                    [[ ! -f "$opencode_config" ]] && echo "{\"mcp\": {$gfs_mcp_opencode_json}}" > "$opencode_config" && mcp_configured+=("OpenCode")
+                fi
+                ;;
+        esac
+    done
+
+    rm -rf "$tmp_dir"
+
+    if [[ ${#injected[@]} -gt 0 ]]; then
+        echo -e ""
+        echo -e "${MUTED}GFS AI tools integration:${NC}"
+        echo -e "  Injected (from $release_url):"
+        for f in "${injected[@]}"; do
+            echo -e "    $f"
+        done
+        if [[ ${#mcp_configured[@]} -gt 0 ]]; then
+            echo -e "  MCP server configured for: ${mcp_configured[*]}"
+        fi
+        echo -e ""
+    fi
+}
+
+inject_ai_tools
 
 echo -e ""                                                                            
 echo -e "${MUTED}▄▖▘▗   ▄▖       ▌  ▗   ▌         ▄▖    ▗        "

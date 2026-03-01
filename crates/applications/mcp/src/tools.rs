@@ -7,16 +7,19 @@ use gfs_compute_docker::DockerCompute;
 use gfs_compute_docker::containers;
 use gfs_domain::adapters::gfs_repository::GfsRepository;
 use gfs_domain::model::config::{GfsConfig, RuntimeConfig};
+use gfs_domain::model::datasource::diff::compute_schema_diff;
+use gfs_domain::model::datasource::diff_formatter::JsonFormatter;
 use gfs_domain::ports::compute::{Compute, InstanceId, InstanceState, InstanceStatus, LogsOptions};
 use gfs_domain::ports::database_provider::{
-    DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry,
+    ConnectionParams, DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry,
 };
 use gfs_domain::ports::repository::{LogOptions, Repository};
 use gfs_domain::repo_utils::repo_layout;
 use gfs_domain::usecases::repository::{
     checkout_repo_usecase::CheckoutRepoUseCase, commit_repo_usecase::CommitRepoUseCase,
-    init_repo_usecase::InitRepositoryUseCase, log_repo_usecase::LogRepoUseCase,
-    status_repo_usecase::StatusRepoUseCase,
+    export_repo_usecase::ExportRepoUseCase, extract_schema_usecase::ExtractSchemaUseCase,
+    import_repo_usecase::ImportRepoUseCase, init_repo_usecase::InitRepositoryUseCase,
+    log_repo_usecase::LogRepoUseCase, status_repo_usecase::StatusRepoUseCase,
 };
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -129,6 +132,72 @@ pub struct ComputeRequest {
     pub logs_since: Option<String>,
     pub logs_no_stdout: Option<bool>,
     pub logs_no_stderr: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ExportRequest {
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
+    #[schemars(description = "host directory where the export file will be written")]
+    pub output_dir: Option<String>,
+    #[schemars(description = "export format: sql or custom")]
+    pub format: String,
+    #[schemars(description = "container id override")]
+    pub id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ImportRequest {
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
+    #[schemars(description = "absolute path to the dump file to import")]
+    pub file: String,
+    #[schemars(
+        description = "import format: sql or custom; inferred from file extension when omitted"
+    )]
+    pub format: Option<String>,
+    #[schemars(description = "container id override")]
+    pub id: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct QueryRequest {
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
+    #[schemars(description = "database name to query (overrides default from container config)")]
+    pub database: Option<String>,
+    #[schemars(
+        description = "SQL query to execute. Omit to return connection info for interactive use."
+    )]
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ExtractSchemaRequest {
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ShowSchemaRequest {
+    #[schemars(description = "commit hash or reference (HEAD, main, etc.)")]
+    pub commit: String,
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
+    #[schemars(description = "return only metadata (JSON), not DDL")]
+    pub metadata_only: Option<bool>,
+    #[schemars(description = "return only DDL (SQL), not metadata")]
+    pub ddl_only: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DiffSchemaRequest {
+    #[schemars(description = "first commit hash or reference")]
+    pub commit1: String,
+    #[schemars(description = "second commit hash or reference")]
+    pub commit2: String,
+    #[schemars(description = "repo root path")]
+    pub path: Option<String>,
 }
 
 // --- Handler ---
@@ -255,6 +324,95 @@ impl GfsMcpHandler {
         });
         do_compute(&args).await
     }
+
+    #[tool(
+        description = "Export data from the running database instance to a file on the host. Required: format (sql or custom). Optional: path (repo root), output_dir (defaults to current directory), id (container override). Returns the path of the exported file. Equivalent to gfs export."
+    )]
+    async fn export_database(
+        &self,
+        Parameters(req): Parameters<ExportRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({
+            "path": req.path,
+            "output_dir": req.output_dir,
+            "format": req.format,
+            "id": req.id,
+        });
+        do_export(&args).await
+    }
+
+    #[tool(
+        description = "Import data into the running database instance from a file on the host. Supports multiple formats including SQL dumps, CSV, JSON, and custom database-specific formats. Required: file (path to data file). Optional: path (repo root), format (sql, csv, json, custom, etc.; inferred from extension when omitted), id (container override). Equivalent to gfs import."
+    )]
+    async fn import_database(
+        &self,
+        Parameters(req): Parameters<ImportRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({
+            "path": req.path,
+            "file": req.file,
+            "format": req.format,
+            "id": req.id,
+        });
+        do_import(&args).await
+    }
+
+    #[tool(
+        description = "Execute a SQL query against the running database instance. Returns query results as text output. Optional: path (repo root), database (name to query), query (SQL statement; if omitted, returns connection info). Note: interactive terminal mode is not supported via MCP. Equivalent to gfs query \"<sql>\"."
+    )]
+    async fn query(
+        &self,
+        Parameters(req): Parameters<QueryRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({
+            "path": req.path,
+            "database": req.database,
+            "query": req.query,
+        });
+        do_query(&args).await
+    }
+
+    #[tool(
+        description = "Extract database schema metadata from the running database instance. Returns complete schema including schemas, tables, columns, constraints, and relationships as structured JSON. Use this to understand the database structure before writing queries or making changes. Optional: path (repo root). Equivalent to gfs schema extract."
+    )]
+    async fn extract_schema(
+        &self,
+        Parameters(req): Parameters<ExtractSchemaRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({ "path": req.path });
+        do_extract_schema(&args).await
+    }
+
+    #[tool(
+        description = "Show schema from a specific commit. View the database schema as it existed at any point in history. Returns both structured metadata (JSON) and native DDL (SQL). Use metadata_only or ddl_only flags to filter output. Required: commit (hash or ref like HEAD, main). Optional: path, metadata_only, ddl_only. Equivalent to gfs schema show."
+    )]
+    async fn show_schema(
+        &self,
+        Parameters(req): Parameters<ShowSchemaRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({
+            "commit": req.commit,
+            "path": req.path,
+            "metadata_only": req.metadata_only,
+            "ddl_only": req.ddl_only,
+        });
+        do_show_schema(&args).await
+    }
+
+    #[tool(
+        description = "Compare schemas between two commits. Track schema evolution by comparing table counts, column counts, and DDL changes. Returns schema hashes, difference summary, and change counts. Required: commit1, commit2 (hashes or refs). Optional: path. Use this before merging branches to review schema changes. Equivalent to gfs schema diff."
+    )]
+    async fn diff_schema(
+        &self,
+        Parameters(req): Parameters<DiffSchemaRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let args = json!({
+            "commit1": req.commit1,
+            "commit2": req.commit2,
+            "path": req.path,
+        });
+        do_diff_schema(&args).await
+    }
 }
 
 #[tool_handler]
@@ -262,7 +420,8 @@ impl ServerHandler for GfsMcpHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "GFS (Guepard) data-plane MCP server. Tools: list_providers, status, commit, log, checkout, init, compute. \
+                "GFS MCP server. Tools: list_providers, status, commit, log, checkout, init, compute, export_database, import_database, query, extract_schema, show_schema, diff_schema. \
+                 Schema versioning: commits automatically capture database schemas. Use show_schema to view schema at any commit, diff_schema to compare schema evolution. \
                  Use path to target a repo or set GFS_REPO_PATH."
                     .into(),
             ),
@@ -809,4 +968,389 @@ fn paths_differ(a: &str, b: &str) -> bool {
         (Ok(a), Ok(b)) => a != b,
         _ => a != b,
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handler_get_info_returns_expected_server_name() {
+        let handler = GfsMcpHandler::new();
+        let info = handler.get_info();
+        assert_eq!(info.server_info.name, "gfs-mcp");
+        assert!(info.capabilities.tools.is_some());
+    }
+
+    #[test]
+    fn handler_get_info_instructions_mention_list_providers() {
+        let handler = GfsMcpHandler::new();
+        let info = handler.get_info();
+        let instructions = info.instructions.as_deref().unwrap_or("");
+        assert!(
+            instructions.contains("list_providers"),
+            "instructions should mention list_providers"
+        );
+    }
+}
+
+async fn do_export(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+
+    let format = args
+        .get("format")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if format.is_empty() {
+        return json_err(
+            "format is required (e.g. sql, custom)",
+            Some("MISSING_ARGS"),
+        );
+    }
+
+    let output_dir = args
+        .get("output_dir")
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_repo_path);
+
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
+    let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
+    containers::register_all(registry.as_ref())
+        .map_err(|e| to_error_data(format!("register providers: {e}")))?;
+
+    let use_case = ExportRepoUseCase::new(compute, registry);
+    let output = use_case
+        .run(&repo_path, output_dir, format)
+        .await
+        .map_err(|e| to_error_data(e.to_string()))?;
+
+    json_ok(json!({
+        "file_path": output.file_path.display().to_string(),
+        "format": output.format,
+        "stdout": output.stdout,
+    }))
+}
+
+async fn do_import(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+
+    let file_str = args
+        .get("file")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| to_error_data("file is required"))?;
+
+    let input_file = PathBuf::from(file_str);
+    let format = args
+        .get("format")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
+    let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
+    containers::register_all(registry.as_ref())
+        .map_err(|e| to_error_data(format!("register providers: {e}")))?;
+
+    let use_case = ImportRepoUseCase::new(compute, registry);
+    let output = use_case
+        .run(&repo_path, input_file, &format)
+        .await
+        .map_err(|e| to_error_data(e.to_string()))?;
+
+    json_ok(json!({
+        "imported_from": output.imported_from.display().to_string(),
+        "format": output.format,
+        "stdout": output.stdout,
+    }))
+}
+
+async fn do_query(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+    let query = args.get("query").and_then(|v| v.as_str()).map(String::from);
+    let database = args
+        .get("database")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Load config to get provider name and container name
+    let config = GfsConfig::load(&repo_path)
+        .map_err(|e| to_error_data(format!("not a GFS repository: {e}")))?;
+
+    let environment = config.environment.as_ref().ok_or_else(|| {
+        to_error_data("no database configured (run init with --database-provider)")
+    })?;
+
+    let runtime = config
+        .runtime
+        .as_ref()
+        .ok_or_else(|| to_error_data("no runtime configured"))?;
+
+    let provider_name = &environment.database_provider;
+    let container_name = &runtime.container_name;
+
+    // Set up compute and registry
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
+
+    let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
+    containers::register_all(registry.as_ref())
+        .map_err(|e| to_error_data(format!("register providers: {e}")))?;
+
+    // Get the provider
+    let provider = registry
+        .get(provider_name)
+        .ok_or_else(|| to_error_data(format!("unknown database provider: {}", provider_name)))?;
+
+    // Get connection info from the running container
+    let instance_id = InstanceId(container_name.clone());
+    let default_port = provider.default_port();
+
+    let conn_info = compute
+        .get_connection_info(&instance_id, default_port)
+        .await
+        .map_err(|e| {
+            to_error_data(format!(
+                "failed to get connection info (is the database running?): {e}"
+            ))
+        })?;
+
+    // Override database name if provided
+    let mut env = conn_info.env.clone();
+    if let Some(db_name) = database.clone() {
+        // Determine the database environment variable based on provider
+        let db_env_var = match provider_name.as_str() {
+            "postgres" => "POSTGRES_DB",
+            "mysql" => "MYSQL_DATABASE",
+            _ => "DATABASE", // fallback for future providers
+        };
+
+        // Remove existing database env var and add the override
+        env.retain(|(k, _)| k != db_env_var);
+        env.push((db_env_var.to_string(), db_name));
+    }
+
+    let params = ConnectionParams {
+        host: conn_info.host.clone(),
+        port: conn_info.port,
+        env,
+    };
+
+    // If no query provided, return connection info for the client
+    if query.is_none() {
+        let connection_string = provider
+            .connection_string(&params)
+            .map_err(|e| to_error_data(format!("failed to build connection string: {e}")))?;
+        return json_ok(json!({
+            "connection_info": {
+                "provider": provider_name,
+                "host": conn_info.host,
+                "port": conn_info.port,
+                "connection_string": connection_string,
+            },
+            "note": "No query provided. Use the connection info above to connect, or provide a query parameter to execute SQL."
+        }));
+    }
+
+    // Build the query command
+    let mut cmd = provider
+        .query_client_command(&params, query.as_deref())
+        .map_err(|e| to_error_data(format!("failed to build query command: {e}")))?;
+
+    // Execute the command and capture output
+    let output = cmd.output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            let client_name = cmd.get_program().to_string_lossy();
+            to_error_data(format!(
+                "database client '{}' not found on the MCP server host. \
+                 Install it to use query via MCP.",
+                client_name
+            ))
+        } else {
+            to_error_data(format!("failed to execute query: {e}"))
+        }
+    })?;
+
+    // Return results
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        json_ok(json!({
+            "success": true,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": output.status.code().unwrap_or(0),
+        }))
+    } else {
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        json_err(
+            &format!(
+                "Query failed with exit code {}: {}",
+                output.status.code().unwrap_or(-1),
+                if !stderr.is_empty() { &stderr } else { &stdout }
+            ),
+            Some("QUERY_FAILED"),
+        )
+    }
+}
+
+async fn do_extract_schema(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+
+    let compute =
+        Arc::new(DockerCompute::new().map_err(|e| to_error_data(format!("Docker: {e}")))?);
+    let registry = Arc::new(InMemoryDatabaseProviderRegistry::new());
+    containers::register_all(registry.as_ref())
+        .map_err(|e| to_error_data(format!("register providers: {e}")))?;
+
+    let use_case = ExtractSchemaUseCase::new(compute, registry);
+    let result = use_case
+        .run(&repo_path)
+        .await
+        .map_err(|e| to_error_data(e.to_string()))?;
+
+    // Return the schema metadata as JSON
+    json_ok(serde_json::to_value(&result.metadata).unwrap_or_else(|e| {
+        json!({
+            "error": format!("failed to serialize schema metadata: {e}"),
+        })
+    }))
+}
+
+async fn do_show_schema(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+
+    let commit = args
+        .get("commit")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| to_error_data("commit parameter is required"))?;
+
+    let metadata_only = args
+        .get("metadata_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let ddl_only = args
+        .get("ddl_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Resolve commit hash
+    let commit_hash = repo_layout::rev_parse(&repo_path, commit)
+        .map_err(|e| to_error_data(format!("failed to resolve commit '{}': {}", commit, e)))?;
+
+    // Load commit
+    let commit_obj = repo_layout::get_commit_from_hash(&repo_path, &commit_hash)
+        .map_err(|e| to_error_data(format!("failed to load commit {}: {}", commit_hash, e)))?;
+
+    // Get schema hash
+    let schema_hash = commit_obj.schema_hash.ok_or_else(|| {
+        to_error_data(format!(
+            "commit {} has no schema (schema versioning was not enabled)",
+            commit_hash
+        ))
+    })?;
+
+    // Load schema object
+    let (metadata, ddl) =
+        repo_layout::get_schema_by_hash(&repo_path, &schema_hash).map_err(|e| {
+            to_error_data(format!(
+                "failed to load schema object {}: {}",
+                schema_hash, e
+            ))
+        })?;
+
+    // Return based on flags
+    if ddl_only {
+        json_ok(json!({
+            "schema_hash": schema_hash,
+            "ddl": ddl,
+        }))
+    } else if metadata_only {
+        json_ok(json!({
+            "schema_hash": schema_hash,
+            "metadata": metadata,
+        }))
+    } else {
+        json_ok(json!({
+            "schema_hash": schema_hash,
+            "driver": metadata.driver,
+            "version": metadata.version,
+            "metadata": metadata,
+            "ddl": ddl,
+        }))
+    }
+}
+
+async fn do_diff_schema(args: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let args = if args.is_object() { args } else { &json!({}) };
+    let repo_path = repo_path_from_value(args);
+
+    let commit1 = args
+        .get("commit1")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| to_error_data("commit1 parameter is required"))?;
+
+    let commit2 = args
+        .get("commit2")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| to_error_data("commit2 parameter is required"))?;
+
+    // Resolve commit hashes
+    let hash1 = repo_layout::rev_parse(&repo_path, commit1)
+        .map_err(|e| to_error_data(format!("failed to resolve commit '{}': {}", commit1, e)))?;
+    let hash2 = repo_layout::rev_parse(&repo_path, commit2)
+        .map_err(|e| to_error_data(format!("failed to resolve commit '{}': {}", commit2, e)))?;
+
+    // Load commits
+    let commit1_obj = repo_layout::get_commit_from_hash(&repo_path, &hash1)
+        .map_err(|e| to_error_data(format!("failed to load commit {}: {}", hash1, e)))?;
+    let commit2_obj = repo_layout::get_commit_from_hash(&repo_path, &hash2)
+        .map_err(|e| to_error_data(format!("failed to load commit {}: {}", hash2, e)))?;
+
+    // Get schema hashes
+    let schema_hash1 = commit1_obj
+        .schema_hash
+        .ok_or_else(|| to_error_data(format!("commit {} has no schema", hash1)))?;
+    let schema_hash2 = commit2_obj
+        .schema_hash
+        .ok_or_else(|| to_error_data(format!("commit {} has no schema", hash2)))?;
+
+    // Load schema objects
+    let (metadata1, _ddl1) =
+        repo_layout::get_schema_by_hash(&repo_path, &schema_hash1).map_err(|e| {
+            to_error_data(format!(
+                "failed to load schema object {}: {}",
+                schema_hash1, e
+            ))
+        })?;
+    let (metadata2, _ddl2) =
+        repo_layout::get_schema_by_hash(&repo_path, &schema_hash2).map_err(|e| {
+            to_error_data(format!(
+                "failed to load schema object {}: {}",
+                schema_hash2, e
+            ))
+        })?;
+
+    // Compute rich schema diff using domain logic
+    let diff = compute_schema_diff(&metadata1, &metadata2, &hash1, &hash2);
+
+    // Format as JSON using JsonFormatter
+    let json_string = JsonFormatter::format(&diff)
+        .map_err(|e| to_error_data(format!("failed to serialize JSON output: {}", e)))?;
+
+    // Parse back to serde_json::Value for MCP response
+    let json_value: serde_json::Value = serde_json::from_str(&json_string)
+        .map_err(|e| to_error_data(format!("failed to parse JSON output: {}", e)))?;
+
+    json_ok(json_value)
 }

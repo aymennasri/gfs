@@ -42,7 +42,7 @@ pub fn Footer() -> impl IntoView {
                 </div>
                 <div class="footer-bottom">
                     <p>"Made with ❤️ by the Guepard team"</p>
-                    <p class="footer-version">"Version 0.1.3"</p>
+                    <p class="footer-version">{format!("Version {}", env!("CARGO_PKG_VERSION"))}</p>
                 </div>
             </div>
         </footer>

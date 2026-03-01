@@ -7,9 +7,25 @@ license.workspace      = true
 repository.workspace   = true
 rust-version.workspace = true
 
+[lib]
+name = "gfs_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gfs"
 path = "src/main.rs"
+
+[[test]]
+name = "import_postgres_csv"
+path = "tests/import/postgres/import_csv.rs"
+
+[[test]]
+name = "import_postgres_sql"
+path = "tests/import/postgres/import_sql.rs"
+
+[[test]]
+name = "schema_extract_postgres"
+path = "tests/schema/extract_postgres.rs"
 
 [dependencies]
 gfs-domain = { workspace = true }
@@ -26,6 +42,14 @@ serde_json         = { workspace = true }
 rmcp               = { workspace = true }
 axum               = { version = "0.7", features = ["json", "macros"] }
 tokio-util         = "0.7"
+owo-colors         = { version = "4", features = ["supports-colors"] }
+[dev-dependencies]
+gfs-domain         = { workspace = true }
+tempfile           = { workspace = true }
+once_cell          = "1.21"
+serial_test        = "3"
+gag                = "1.0"
+tokio              = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gfs-storage-apfs = { workspace = true }

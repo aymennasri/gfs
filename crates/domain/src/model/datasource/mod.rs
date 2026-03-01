@@ -8,6 +8,8 @@ mod column_privileges;
 mod columns;
 mod config;
 mod db_types;
+pub mod diff;
+pub mod diff_formatter;
 mod extensions;
 mod foreign_tables;
 mod functions;

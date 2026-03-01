@@ -100,6 +100,14 @@ pub struct InstanceConnectionInfo {
     pub env: Vec<(String, String)>,
 }
 
+/// Output captured from running a command in a compute instance.
+#[derive(Debug, Clone)]
+pub struct ExecOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 /// Options controlling how an instance is started.
 #[derive(Debug, Default)]
 pub struct StartOptions {
@@ -254,4 +262,105 @@ pub trait Compute: Send + Sync {
 
     /// Stop the instance if running, then remove it. Used when recreating a container with a new data bind.
     async fn remove_instance(&self, id: &InstanceId) -> Result<()>;
+
+    // -----------------------------------------------------------------------
+    // Task execution (sidecar / ephemeral instances)
+    // -----------------------------------------------------------------------
+
+    /// Return connection info for reaching this instance **from within a linked
+    /// task** (see [`run_task`](Self::run_task)).
+    ///
+    /// In containerised runtimes this typically returns the instance hostname
+    /// (container name / IP) and the *container* port (not the mapped host
+    /// port). In process-based runtimes it returns `localhost` and the
+    /// listening port.
+    async fn get_task_connection_info(
+        &self,
+        id: &InstanceId,
+        compute_port: u16,
+    ) -> Result<InstanceConnectionInfo>;
+
+    /// Run an ephemeral compute instance to completion.
+    ///
+    /// The runtime creates a temporary instance from `definition`, executes
+    /// `command` (as a shell command, e.g. via `sh -c`), captures stdout /
+    /// stderr, and removes the instance once it exits.
+    ///
+    /// If `linked_to` is `Some`, the runtime ensures network connectivity
+    /// between the task and the linked instance (e.g. same Docker network,
+    /// same host, etc.).
+    ///
+    /// `definition.host_data_dir` / `definition.data_dir` are used for
+    /// volume-mounting files into / out of the task (e.g. an export dump or
+    /// import source).
+    async fn run_task(
+        &self,
+        definition: &ComputeDefinition,
+        command: &str,
+        linked_to: Option<&InstanceId>,
+    ) -> Result<ExecOutput>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instance_state_as_status_str() {
+        assert_eq!(InstanceState::Starting.as_status_str(), "starting");
+        assert_eq!(InstanceState::Running.as_status_str(), "running");
+        assert_eq!(InstanceState::Paused.as_status_str(), "paused");
+        assert_eq!(InstanceState::Stopping.as_status_str(), "stopping");
+        assert_eq!(InstanceState::Stopped.as_status_str(), "stopped");
+        assert_eq!(InstanceState::Restarting.as_status_str(), "restarting");
+        assert_eq!(InstanceState::Failed.as_status_str(), "failed");
+        assert_eq!(InstanceState::Unknown.as_status_str(), "unknown");
+    }
+
+    #[test]
+    fn instance_id_display() {
+        let id = InstanceId("abc-123".into());
+        assert_eq!(id.to_string(), "abc-123");
+    }
+
+    #[test]
+    fn logs_options_default() {
+        let opts = LogsOptions::default();
+        assert!(opts.tail.is_none());
+        assert!(opts.since.is_none());
+        assert!(opts.stdout);
+        assert!(opts.stderr);
+    }
+
+    #[test]
+    fn compute_error_display() {
+        assert_eq!(
+            ComputeError::NotFound("x".into()).to_string(),
+            "instance not found: 'x'"
+        );
+        assert_eq!(
+            ComputeError::AlreadyExists("y".into()).to_string(),
+            "instance already exists: 'y'"
+        );
+        assert_eq!(
+            ComputeError::NotRunning("z".into()).to_string(),
+            "instance is not running: 'z'"
+        );
+        assert_eq!(
+            ComputeError::AlreadyRunning("a".into()).to_string(),
+            "instance is already running: 'a'"
+        );
+        assert_eq!(
+            ComputeError::AlreadyPaused("b".into()).to_string(),
+            "instance is already paused: 'b'"
+        );
+        assert_eq!(
+            ComputeError::NotPaused("c".into()).to_string(),
+            "instance is not paused: 'c'"
+        );
+        assert_eq!(
+            ComputeError::Internal("msg".into()).to_string(),
+            "internal error: msg"
+        );
+    }
 }

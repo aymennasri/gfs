@@ -20,3 +20,44 @@ pub(crate) fn classify_stderr(volume_id: &str, stderr: &str) -> StorageError {
         StorageError::Internal(stderr.trim().to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_stderr_not_found() {
+        let err = classify_stderr("vol1", "No such file or directory");
+        assert!(matches!(err, StorageError::NotFound(s) if s == "vol1"));
+
+        let err = classify_stderr("vol2", "cannot find the path");
+        assert!(matches!(err, StorageError::NotFound(s) if s == "vol2"));
+
+        let err = classify_stderr("vol3", "does not exist");
+        assert!(matches!(err, StorageError::NotFound(s) if s == "vol3"));
+    }
+
+    #[test]
+    fn classify_stderr_busy() {
+        let err = classify_stderr("vol1", "Device or resource busy");
+        assert!(matches!(err, StorageError::Busy(s) if s == "vol1"));
+
+        let err = classify_stderr("vol2", "volume in use");
+        assert!(matches!(err, StorageError::Busy(s) if s == "vol2"));
+    }
+
+    #[test]
+    fn classify_stderr_already_exists() {
+        let err = classify_stderr("vol1", "File already exists");
+        assert!(matches!(err, StorageError::AlreadyExists(s) if s == "vol1"));
+
+        let err = classify_stderr("vol2", "target already exist");
+        assert!(matches!(err, StorageError::AlreadyExists(s) if s == "vol2"));
+    }
+
+    #[test]
+    fn classify_stderr_internal() {
+        let err = classify_stderr("vol1", "Some unknown error");
+        assert!(matches!(err, StorageError::Internal(s) if s == "Some unknown error"));
+    }
+}

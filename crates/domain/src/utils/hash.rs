@@ -76,4 +76,45 @@ mod tests {
             hash_snapshot("/data/other", &ts)
         );
     }
+
+    #[test]
+    fn hash_commit_deterministic() {
+        let commit = crate::model::commit::NewCommit::new(
+            "msg".into(),
+            "author".into(),
+            None,
+            "committer".into(),
+            None,
+            "snap123".into(),
+            None,
+        );
+        let h1 = hash_commit(&commit).unwrap();
+        let h2 = hash_commit(&commit).unwrap();
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn hash_commit_differs_on_different_message() {
+        let c1 = crate::model::commit::NewCommit::new(
+            "msg1".into(),
+            "author".into(),
+            None,
+            "committer".into(),
+            None,
+            "snap".into(),
+            None,
+        );
+        let c2 = crate::model::commit::NewCommit::new(
+            "msg2".into(),
+            "author".into(),
+            None,
+            "committer".into(),
+            None,
+            "snap".into(),
+            None,
+        );
+        assert_ne!(hash_commit(&c1).unwrap(), hash_commit(&c2).unwrap());
+    }
 }

@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "integration_tests",
     "crates/adapters/compute-docker",
     "crates/adapters/storage-apfs",
     "crates/adapters/storage-file",

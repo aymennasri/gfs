@@ -7,6 +7,8 @@ use gfs_domain::ports::database_provider::{
     DatabaseProviderRegistry, InMemoryDatabaseProviderRegistry, SupportedFeature,
 };
 
+use crate::output::{bold, cyan};
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ fn print_provider_detail(registry: &impl DatabaseProviderRegistry, name: &str) -
     let versions = provider.supported_versions();
     let features = provider.supported_features();
 
-    println!("  Provider: {}", name);
+    println!("  {} {}", bold("Provider:"), cyan(name));
     println!();
     println!("  Supported versions: {}", versions.join(", "));
     println!();
@@ -79,9 +81,9 @@ fn print_providers_table(rows: &[(String, String, String)]) {
 
     println!(
         "  {:<provider$} | {:<version$} | {:<features$}",
-        "database_provider",
-        "version",
-        "features",
+        bold("database_provider"),
+        bold("version"),
+        bold("features"),
         provider = COL_PROVIDER,
         version = COL_VERSION,
         features = COL_FEATURES
@@ -101,7 +103,7 @@ fn print_providers_table(rows: &[(String, String, String)]) {
         let features_trunc = truncate(features, COL_FEATURES);
         println!(
             "  {:<provider$} | {:<version$} | {:<features$}",
-            name,
+            cyan(name),
             version_trunc,
             features_trunc,
             provider = COL_PROVIDER,
@@ -119,12 +121,12 @@ fn print_features_table(features: &[SupportedFeature]) {
     const COL_FEATURE: usize = 25;
     const COL_DESC: usize = 55;
 
-    println!("  Features");
+    println!("  {}", bold("Features"));
     println!("  {}", "─".repeat(COL_FEATURE + COL_DESC + 5));
     println!(
         "  {:<feature$} | {:<desc$}",
-        "feature",
-        "description",
+        bold("feature"),
+        bold("description"),
         feature = COL_FEATURE,
         desc = COL_DESC
     );

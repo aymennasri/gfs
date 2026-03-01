@@ -12,6 +12,7 @@ use gfs_domain::ports::repository::Repository;
 use gfs_domain::usecases::repository::status_repo_usecase::StatusRepoUseCase;
 
 use crate::cli_utils::{get_repo_dir, relativize_to_repo};
+use crate::output::{bold, cyan, dimmed, green, red, yellow};
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -50,12 +51,12 @@ const LABEL_WIDTH: usize = 20;
 
 fn print_table(s: &StatusResponse, repo_path: &Path) {
     // Repository section
-    println!("  Repository");
+    println!("  {}", bold("Repository"));
     println!("  {}", "─".repeat(40));
     println!(
         "  {:<width$} {}",
         "Branch",
-        s.current_branch,
+        cyan(&s.current_branch),
         width = LABEL_WIDTH
     );
     if let Some(ref active) = s.active_workspace_data_dir {
@@ -69,8 +70,8 @@ fn print_table(s: &StatusResponse, repo_path: &Path) {
     println!();
 
     if let Some(ref c) = s.compute {
-        let status_dot = status_indicator(&c.container_status);
-        println!("  Compute");
+        let status_dot = status_indicator_colored(&c.container_status);
+        println!("  {}", bold("Compute"));
         println!("  {}", "─".repeat(40));
         println!(
             "  {:<width$} {}",
@@ -89,7 +90,7 @@ fn print_table(s: &StatusResponse, repo_path: &Path) {
         println!(
             "  {:<width$} {}",
             "Container ID",
-            truncate_id(&c.container_id),
+            dimmed(truncate_id(&c.container_id)),
             width = LABEL_WIDTH
         );
         if let Some(ref bind) = c.data_bind_host_path {
@@ -109,14 +110,14 @@ fn print_table(s: &StatusResponse, repo_path: &Path) {
             );
         }
     } else {
-        println!("  Compute");
+        println!("  {}", bold("Compute"));
         println!("  {}", "─".repeat(40));
         println!("  (no compute instance configured)");
     }
 
     if let Some(ref warning) = s.bind_mismatch_warning {
         println!();
-        println!("  ⚠  {}", warning);
+        println!("  {}  {}", yellow("⚠"), yellow(warning));
     }
 }
 
@@ -129,6 +130,18 @@ fn status_indicator(status: &str) -> &'static str {
         "paused" => "◌",
         "failed" | "unknown" => "✕",
         _ => "•",
+    }
+}
+
+/// Status indicator with color applied (green=ok, yellow=transitioning, red=bad).
+fn status_indicator_colored(status: &str) -> String {
+    let dot = status_indicator(status);
+    match status {
+        "running" => format!("{}", green(dot)),
+        "starting" | "restarting" => format!("{}", yellow(dot)),
+        "stopped" | "stopping" | "not_provisioned" | "paused" => format!("{}", dimmed(dot)),
+        "failed" | "unknown" => format!("{}", red(dot)),
+        _ => dot.to_string(),
     }
 }
 

@@ -183,3 +183,27 @@ jobs:
           asset_path: ./${{ matrix.artifact_name }}.tar.gz
           asset_name: ${{ matrix.artifact_name }}.tar.gz
           asset_content_type: application/gzip
+
+  build-ai-tools:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ needs.create-release.outputs.version }}
+
+      - name: Create AI tools archive
+        run: |
+          tar czf gfs-ai-tools-${{ needs.create-release.outputs.version }}.tar.gz skills agents
+
+      - name: Upload AI tools Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./gfs-ai-tools-${{ needs.create-release.outputs.version }}.tar.gz
+          asset_name: gfs-ai-tools-${{ needs.create-release.outputs.version }}.tar.gz
+          asset_content_type: application/gzip

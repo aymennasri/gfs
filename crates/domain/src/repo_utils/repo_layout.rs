@@ -2,9 +2,9 @@ use crate::model::commit::{Commit, FileEntry};
 use crate::model::config::{EnvironmentConfig, GfsConfig, RuntimeConfig, UserConfig};
 use crate::model::errors::RepoError;
 use crate::model::layout::{
-    BRANCH_WORKSPACE_SEGMENT, CONFIG_FILE, GFS_DIR, HEAD_FILE, HEADS_DIR, MAIN_BRANCH, OBJECTS_DIR,
-    REFS_DIR, SHORT_COMMIT_ID_LEN, SNAPSHOTS_DIR, WORKSPACE_DATA_DIR, WORKSPACE_FILE,
-    WORKSPACES_DIR,
+    BRANCH_WORKSPACE_SEGMENT, CONFIG_FILE, DEFAULT_SHORT_HASH_LEN, GFS_DIR, HEAD_FILE, HEADS_DIR,
+    MAIN_BRANCH, MIN_SHORT_HASH_LEN, OBJECTS_DIR, REFS_DIR, SHORT_COMMIT_ID_LEN, SNAPSHOTS_DIR,
+    WORKSPACE_DATA_DIR, WORKSPACE_FILE, WORKSPACES_DIR,
 };
 use anyhow::Result;
 use std::collections::HashSet;
@@ -131,7 +131,7 @@ pub fn init_repo_layout(working_dir: &Path, mount_point: Option<String>) -> Resu
     let config = GfsConfig {
         mount_point,
         version: env!("CARGO_PKG_VERSION").to_string(),
-        description: "Guepard Filesystem".to_string(),
+        description: "Git For database Systems".to_string(),
         user: None,
         environment: None,
         runtime: None,
@@ -490,6 +490,62 @@ pub fn get_commit_from_hash(repo_path: &Path, commit_hash: &str) -> Result<Commi
     Ok(commit)
 }
 
+/// Walk back N generations from a commit following first-parent history.
+/// Returns the ancestor commit hash, or error if path doesn't exist.
+///
+/// - `start_commit`: Starting commit hash (must be valid)
+/// - `generations`: Number of parents to traverse (0 returns start_commit)
+///
+/// Returns `RepoError::RevisionNotFound` if ancestry path is too short.
+pub fn get_ancestor_commit(
+    repo_path: &Path,
+    start_commit: &str,
+    generations: usize,
+) -> Result<String, RepoError> {
+    if generations == 0 {
+        return Ok(start_commit.to_string());
+    }
+
+    let mut current = start_commit.to_string();
+
+    for generation_idx in 0..generations {
+        // Handle special "0" marker (initial commit has no parent)
+        if current == "0" {
+            return Err(RepoError::RevisionNotFound(format!(
+                "{}~{}: commit has no parent (reached initial commit at generation {})",
+                start_commit, generations, generation_idx
+            )));
+        }
+
+        // Load current commit
+        let commit = get_commit_from_hash(repo_path, &current)?;
+
+        // Get first parent
+        let parent = commit
+            .parents
+            .as_ref()
+            .and_then(|p| p.first())
+            .ok_or_else(|| {
+                RepoError::RevisionNotFound(format!(
+                    "{}~{}: commit {} has no parent (generation {})",
+                    start_commit, generations, current, generation_idx
+                ))
+            })?;
+
+        // Check if parent is "0" (initial commit marker)
+        if parent == "0" {
+            return Err(RepoError::RevisionNotFound(format!(
+                "{}~{}: reached initial commit at generation {} (parent is 0)",
+                start_commit, generations, generation_idx
+            )));
+        }
+
+        current = parent.clone();
+    }
+
+    Ok(current)
+}
+
 /// Deterministic bincode config for file entries (must match hash::hash_file_entries).
 fn files_bincode_config() -> bincode::config::Configuration {
     bincode::config::standard()
@@ -536,6 +592,71 @@ pub fn get_file_entries_for_commit(
         Some(hash) => get_file_entries_by_ref(repo_path, hash).map(Some),
         None => Ok(None),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Schema Object Storage
+// ---------------------------------------------------------------------------
+
+/// Write schema object to `.gfs/objects/<2>/<62>/` directory containing:
+/// - `schema.json`: Structured metadata from DatasourceMetadata
+/// - `schema.sql`: Native DDL dump (pg_dump --schema-only or mysqldump --no-data)
+///
+/// Returns the 64-char SHA-256 hash computed from schema.json content.
+pub fn write_schema_object(
+    repo_path: &Path,
+    schema_metadata: &crate::model::datasource::DatasourceMetadata,
+    schema_sql: &str,
+) -> Result<String, RepoError> {
+    use sha2::{Digest, Sha256};
+
+    // 1. Serialize schema.json
+    let schema_json = serde_json::to_string_pretty(schema_metadata)
+        .map_err(|e| RepoError::InvalidConfig(format!("failed to serialize schema: {}", e)))?;
+
+    // 2. Compute SHA-256 hash of schema.json content
+    let mut hasher = Sha256::new();
+    hasher.update(schema_json.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+
+    // 3. Create directory: objects/<2>/<62>/
+    let (dir_part, file_part) = hash.split_at(2);
+    let schema_dir = repo_path
+        .join(GFS_DIR)
+        .join(OBJECTS_DIR)
+        .join(dir_part)
+        .join(file_part);
+    fs::create_dir_all(&schema_dir).map_err(RepoError::from)?;
+
+    // 4. Write both files
+    fs::write(schema_dir.join("schema.json"), schema_json).map_err(RepoError::from)?;
+    fs::write(schema_dir.join("schema.sql"), schema_sql).map_err(RepoError::from)?;
+
+    Ok(hash)
+}
+
+/// Read schema object from `.gfs/objects/<2>/<62>/`.
+/// Returns tuple of (DatasourceMetadata, schema_sql).
+pub fn get_schema_by_hash(
+    repo_path: &Path,
+    schema_hash: &str,
+) -> Result<(crate::model::datasource::DatasourceMetadata, String), RepoError> {
+    let (dir_part, file_part) = schema_hash.split_at(2);
+    let schema_dir = repo_path
+        .join(GFS_DIR)
+        .join(OBJECTS_DIR)
+        .join(dir_part)
+        .join(file_part);
+
+    let schema_json = fs::read_to_string(schema_dir.join("schema.json"))
+        .map_err(|e| RepoError::InvalidConfig(format!("failed to read schema.json: {}", e)))?;
+    let schema_sql = fs::read_to_string(schema_dir.join("schema.sql"))
+        .map_err(|e| RepoError::InvalidConfig(format!("failed to read schema.sql: {}", e)))?;
+
+    let metadata: crate::model::datasource::DatasourceMetadata = serde_json::from_str(&schema_json)
+        .map_err(|e| RepoError::InvalidConfig(format!("failed to parse schema.json: {}", e)))?;
+
+    Ok((metadata, schema_sql))
 }
 
 pub fn get_snapshot_from_branch(repo_path: &Path, branch_name: &str) -> Result<String, RepoError> {
@@ -612,14 +733,43 @@ pub fn update_branch_ref(
     Ok(())
 }
 
-/// Resolves a human-readable revision (HEAD, branch name, or full 64-char hash) to a commit id.
+/// Resolves a human-readable revision to a commit id.
 ///
-/// - `"HEAD"` or empty: returns `get_current_commit_id(repo_path)`.
-/// - Branch name: if `is_branch`, reads `refs/heads/<revision>` and returns the trimmed content.
-/// - Full 64-char hex or `"0"`: returns the revision as-is if it is a valid commit id.
-/// - Otherwise: `Err(RepoError::RevisionNotFound(revision))`.
+/// Supported formats:
+/// - `"HEAD"` or empty: current commit
+/// - Branch name: tip of branch from `refs/heads/<branch>`
+/// - Full 64-char hex: validated commit hash
+/// - `"0"`: initial commit marker
+/// - `<revision>~<n>`: nth ancestor of revision (e.g., `HEAD~1`, `main~5`)
+/// - `<revision>~`: same as `<revision>~1` (first parent)
 pub fn rev_parse(repo_path: &Path, revision: &str) -> Result<String, RepoError> {
     let revision = revision.trim();
+
+    // Check for tilde notation: <base>~<n>
+    if let Some(tilde_pos) = revision.rfind('~') {
+        let base_rev = &revision[..tilde_pos];
+        let count_str = &revision[tilde_pos + 1..];
+
+        // Parse generation count (default to 1 if empty or just ~)
+        let generations = if count_str.is_empty() {
+            1
+        } else {
+            count_str.parse::<usize>().map_err(|_| {
+                RepoError::RevisionNotFound(format!(
+                    "invalid tilde syntax '{}': count must be a positive integer",
+                    revision
+                ))
+            })?
+        };
+
+        // Resolve base revision first
+        let base_commit = rev_parse(repo_path, base_rev)?;
+
+        // Walk back N generations
+        return get_ancestor_commit(repo_path, &base_commit, generations);
+    }
+
+    // Original logic (unchanged)
     if revision.is_empty() || revision.eq_ignore_ascii_case(HEAD_FILE) {
         return get_current_commit_id(repo_path);
     }
@@ -632,13 +782,121 @@ pub fn rev_parse(repo_path: &Path, revision: &str) -> Result<String, RepoError> 
         let content = fs::read_to_string(branch_path).map_err(RepoError::from)?;
         return Ok(content.trim().to_string());
     }
+    // Check for full 64-char hash (fast path)
     if revision.len() == 64
         && revision.chars().all(|c| c.is_ascii_hexdigit())
         && is_commit(repo_path, revision)
     {
         return Ok(revision.to_string());
     }
+
+    // Check for short hash (4-63 chars, all hex)
+    if revision.len() >= MIN_SHORT_HASH_LEN
+        && revision.len() < 64
+        && revision.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        let matches = find_commits_by_prefix(repo_path, revision)?;
+
+        match matches.len() {
+            0 => {
+                // No matches - fall through to error
+            }
+            1 => {
+                // Unique match - return it
+                return Ok(matches[0].clone());
+            }
+            _ => {
+                // Ambiguous - return error with candidates
+                return Err(RepoError::AmbiguousShortHash {
+                    prefix: revision.to_string(),
+                    matches,
+                });
+            }
+        }
+    }
+
     Err(RepoError::RevisionNotFound(revision.to_string()))
+}
+
+/// Find commits matching a short hash prefix.
+///
+/// Returns list of full 64-char hashes matching the given prefix.
+/// Scans `.gfs/objects/` directory structure.
+///
+/// # Arguments
+/// * `repo_path` - Repository root path
+/// * `prefix` - Hex string prefix (must be 4-64 chars, all hex digits)
+///
+/// # Returns
+/// * `Ok(Vec<String>)` - List of matching full hashes (empty if none found)
+/// * `Err(RepoError)` - If prefix is invalid or I/O error
+fn find_commits_by_prefix(repo_path: &Path, prefix: &str) -> Result<Vec<String>, RepoError> {
+    // Validate prefix length (4-64 chars)
+    if prefix.len() < MIN_SHORT_HASH_LEN || prefix.len() > 64 {
+        return Err(RepoError::invalid_layout(format!(
+            "short hash must be {}-64 characters, got {}",
+            MIN_SHORT_HASH_LEN,
+            prefix.len()
+        )));
+    }
+
+    // Validate all hex characters
+    if !prefix.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(RepoError::invalid_layout(format!(
+            "short hash must contain only hex characters, got '{}'",
+            prefix
+        )));
+    }
+
+    let objects_dir = repo_path.join(GFS_DIR).join(OBJECTS_DIR);
+    let mut matches = Vec::new();
+
+    // Hash structure: <2-char-dir>/<62-char-file>
+    let (dir_prefix, file_prefix) = if prefix.len() <= 2 {
+        (prefix, "")
+    } else {
+        prefix.split_at(2)
+    };
+
+    // Scan object directories
+    let entries = fs::read_dir(&objects_dir).map_err(RepoError::from)?;
+
+    for entry in entries {
+        let entry = entry.map_err(RepoError::from)?;
+        let dir_name = entry.file_name();
+        let dir_name_str = dir_name.to_string_lossy();
+
+        // Skip directories that don't match prefix
+        if !dir_name_str.starts_with(dir_prefix) {
+            continue;
+        }
+
+        let dir_path = entry.path();
+        if !dir_path.is_dir() {
+            continue;
+        }
+
+        // Scan files in matching directories
+        let file_entries = fs::read_dir(&dir_path).map_err(RepoError::from)?;
+
+        for file_entry in file_entries {
+            let file_entry = file_entry.map_err(RepoError::from)?;
+            let file_name = file_entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+
+            // Check if file matches prefix
+            if file_name_str.starts_with(file_prefix) {
+                let full_hash = format!("{}{}", dir_name_str, file_name_str);
+
+                // Verify full hash starts with original prefix
+                if full_hash.starts_with(prefix) {
+                    matches.push(full_hash);
+                }
+            }
+        }
+    }
+
+    Ok(matches)
 }
 
 fn collect_branch_refs(dir: &Path, prefix: &str) -> Result<Vec<(String, String)>, RepoError> {
@@ -728,6 +986,21 @@ pub fn short_commit_id_for_workspace(commit_id: &str) -> String {
             .chars()
             .take(SHORT_COMMIT_ID_LEN)
             .collect::<String>()
+    }
+}
+
+/// Format a commit hash for display.
+///
+/// Uses `DEFAULT_SHORT_HASH_LEN` (7 chars) for short format.
+///
+/// # Arguments
+/// * `hash` - Full commit hash
+/// * `full` - If true, return full hash; if false, return first 7 chars
+pub fn format_commit_hash(hash: &str, full: bool) -> String {
+    if full || hash.len() <= DEFAULT_SHORT_HASH_LEN {
+        hash.to_string()
+    } else {
+        hash.chars().take(DEFAULT_SHORT_HASH_LEN).collect()
     }
 }
 
@@ -1000,7 +1273,7 @@ name = "test-repo"
             committer_date: Utc::now(),
             parents: None,
             snapshot_hash: "0000000000000000000000000000000000000000".to_string(),
-            schema: None,
+            schema_hash: None,
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -1165,7 +1438,7 @@ name = "test-repo"
             committer_date: Utc::now(),
             parents: None,
             snapshot_hash: "00".to_string(),
-            schema: None,
+            schema_hash: None,
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -1216,7 +1489,7 @@ name = "test-repo"
             committer_date: Utc::now(),
             parents: None,
             snapshot_hash: "00".to_string(),
-            schema: None,
+            schema_hash: None,
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -1293,7 +1566,7 @@ name = "test-repo"
             committer_date: Utc::now(),
             parents: None,
             snapshot_hash: "00".to_string(),
-            schema: None,
+            schema_hash: None,
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -1355,7 +1628,7 @@ name = "test-repo"
             committer_date: Utc::now(),
             parents: None,
             snapshot_hash: "00".to_string(),
-            schema: None,
+            schema_hash: None,
             database_provider: None,
             database_version: None,
             files_added: None,
@@ -1383,5 +1656,369 @@ name = "test-repo"
 
         let refs = get_refs_pointing_to(&repo_dir, hash).unwrap();
         assert_eq!(refs, vec![HEAD_FILE.to_string()]);
+    }
+
+    #[test]
+    fn test_get_ancestor_commit_zero_generations() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = get_ancestor_commit(&repo, &commits[2], 0).unwrap();
+        assert_eq!(result, commits[2]);
+    }
+
+    #[test]
+    fn test_get_ancestor_commit_one_generation() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = get_ancestor_commit(&repo, &commits[2], 1).unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_get_ancestor_commit_multiple_generations() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(5);
+        let result = get_ancestor_commit(&repo, &commits[4], 3).unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_get_ancestor_commit_all_the_way_back() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(5);
+        let result = get_ancestor_commit(&repo, &commits[4], 4).unwrap();
+        assert_eq!(result, commits[0]);
+    }
+
+    #[test]
+    fn test_get_ancestor_commit_too_far_returns_error() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = get_ancestor_commit(&repo, &commits[2], 5);
+        assert!(matches!(result, Err(RepoError::RevisionNotFound(_))));
+    }
+
+    #[test]
+    fn test_rev_parse_head_tilde_one() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = rev_parse(&repo, "HEAD~1").unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_rev_parse_head_tilde_two() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(5);
+        let result = rev_parse(&repo, "HEAD~2").unwrap();
+        assert_eq!(result, commits[2]);
+    }
+
+    #[test]
+    fn test_rev_parse_branch_tilde_notation() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(4);
+        let result = rev_parse(&repo, "main~2").unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_rev_parse_hash_tilde_notation() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(5);
+        let hash = &commits[4];
+        let result = rev_parse(&repo, &format!("{}~3", hash)).unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_rev_parse_tilde_without_number_defaults_to_one() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = rev_parse(&repo, "HEAD~").unwrap();
+        assert_eq!(result, commits[1]);
+    }
+
+    #[test]
+    fn test_rev_parse_tilde_zero_returns_same_commit() {
+        let (_temp, repo, commits) = setup_test_repo_with_commits(3);
+        let result = rev_parse(&repo, "HEAD~0").unwrap();
+        assert_eq!(result, commits[2]);
+    }
+
+    #[test]
+    fn test_rev_parse_invalid_tilde_count() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        let result = rev_parse(&repo, "HEAD~abc");
+        assert!(matches!(result, Err(RepoError::RevisionNotFound(_))));
+    }
+
+    #[test]
+    fn test_rev_parse_tilde_exceeds_history() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        let result = rev_parse(&repo, "HEAD~10");
+        assert!(matches!(result, Err(RepoError::RevisionNotFound(_))));
+    }
+
+    fn setup_test_repo_with_commits(commit_count: usize) -> (TempDir, PathBuf, Vec<String>) {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        let mut commits = Vec::new();
+        let mut parent = None;
+
+        for i in 0..commit_count {
+            let hash = format!("{:0>64}", i); // Fake hash for testing
+            let gfs_dir = repo_dir.join(GFS_DIR);
+            let objects_dir = gfs_dir.join(OBJECTS_DIR);
+            let (dir, file) = hash.split_at(2);
+            fs::create_dir_all(objects_dir.join(dir)).unwrap();
+
+            let commit = Commit {
+                hash: Some(hash.clone()),
+                message: format!("Commit {}", i),
+                timestamp: Utc::now(),
+                parents: parent.as_ref().map(|p: &String| vec![p.clone()]),
+                snapshot_hash: format!("snap{}", i),
+                author: "test".into(),
+                author_email: None,
+                author_date: Utc::now(),
+                committer: "test".into(),
+                committer_email: None,
+                committer_date: Utc::now(),
+                schema_hash: None,
+                database_provider: None,
+                database_version: None,
+                files_added: None,
+                files_deleted: None,
+                files_modified: None,
+                files_renamed: None,
+                files_ref: None,
+                files_count: None,
+                snapshot_size_bytes: None,
+                blocks_added: None,
+                blocks_deleted: None,
+                db_objects_added: None,
+                db_objects_deleted: None,
+                db_objects_modified: None,
+            };
+
+            let commit_json = serde_json::to_string_pretty(&commit).unwrap();
+            fs::write(objects_dir.join(dir).join(file), commit_json).unwrap();
+
+            commits.push(hash.clone());
+            parent = Some(hash);
+        }
+
+        // Update main branch to point to last commit
+        let main_ref = repo_dir
+            .join(GFS_DIR)
+            .join(REFS_DIR)
+            .join(HEADS_DIR)
+            .join(MAIN_BRANCH);
+        fs::write(main_ref, commits.last().unwrap()).unwrap();
+
+        // Update HEAD to point to main branch
+        let head_path = repo_dir.join(GFS_DIR).join(HEAD_FILE);
+        fs::write(
+            head_path,
+            format!("ref: {}/{}/{}", REFS_DIR, HEADS_DIR, MAIN_BRANCH),
+        )
+        .unwrap();
+
+        (temp_dir, repo_dir, commits)
+    }
+
+    // -------------------------------------------------------------------------
+    // Short Hash Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_find_commits_by_prefix_unique_match() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        // Create commits with distinct prefixes
+        let hash1 = "a1b2c3d4e5f60000000000000000000000000000000000000000000000000000";
+        let hash2 = "b1b2c3d4e5f60000000000000000000000000000000000000000000000000000";
+
+        create_test_commit_with_hash(&repo_dir, hash1, None);
+        create_test_commit_with_hash(&repo_dir, hash2, Some(hash1));
+
+        // Search with unique prefix for hash2
+        let matches = find_commits_by_prefix(&repo_dir, "b1b2c3").unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], hash2);
+    }
+
+    #[test]
+    fn test_find_commits_by_prefix_no_match() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        // Search for non-existent prefix
+        let matches = find_commits_by_prefix(&repo, "ffffffff").unwrap();
+        assert_eq!(matches.len(), 0);
+    }
+
+    #[test]
+    fn test_find_commits_by_prefix_too_short() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        // Try 3-char prefix (minimum is 4)
+        let result = find_commits_by_prefix(&repo, "abc");
+        assert!(matches!(result, Err(RepoError::InvalidLayout(_))));
+    }
+
+    #[test]
+    fn test_find_commits_by_prefix_invalid_chars() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        // Try prefix with 'g' (not a hex digit)
+        let result = find_commits_by_prefix(&repo, "abc12g");
+        assert!(matches!(result, Err(RepoError::InvalidLayout(_))));
+    }
+
+    #[test]
+    fn test_rev_parse_short_hash_unique() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        // Create commits with distinct prefixes
+        let hash = "a1b2c3d4e5f60000000000000000000000000000000000000000000000000000";
+        create_test_commit_with_hash(&repo_dir, hash, None);
+
+        // Use 7-char prefix (Git-like)
+        let result = rev_parse(&repo_dir, "a1b2c3d").unwrap();
+        assert_eq!(result, hash);
+    }
+
+    #[test]
+    fn test_rev_parse_short_hash_minimum_length() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        // Create commit with distinct prefix
+        let hash = "abcd1234e5f60000000000000000000000000000000000000000000000000000";
+        create_test_commit_with_hash(&repo_dir, hash, None);
+
+        // Use 4-char prefix (minimum length)
+        let result = rev_parse(&repo_dir, "abcd").unwrap();
+        assert_eq!(result, hash);
+    }
+
+    #[test]
+    fn test_rev_parse_short_hash_with_tilde() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        // Create commits with distinct prefixes
+        let hash1 = "a1111111111111111111111111111111111111111111111111111111111111111";
+        let hash2 = "b2222222222222222222222222222222222222222222222222222222222222222";
+        let hash3 = "c3333333333333333333333333333333333333333333333333333333333333333";
+
+        create_test_commit_with_hash(&repo_dir, hash1, None);
+        create_test_commit_with_hash(&repo_dir, hash2, Some(hash1));
+        create_test_commit_with_hash(&repo_dir, hash3, Some(hash2));
+
+        // Update main branch to point to hash3
+        let main_ref = repo_dir
+            .join(GFS_DIR)
+            .join(REFS_DIR)
+            .join(HEADS_DIR)
+            .join(MAIN_BRANCH);
+        fs::write(main_ref, hash3).unwrap();
+
+        // Use short hash with tilde notation
+        let result = rev_parse(&repo_dir, "c333333~2").unwrap();
+        assert_eq!(result, hash1);
+    }
+
+    #[test]
+    fn test_rev_parse_short_hash_not_found() {
+        let (_temp, repo, _commits) = setup_test_repo_with_commits(3);
+        // Try non-existent short hash
+        let result = rev_parse(&repo, "ffffffff");
+        assert!(matches!(result, Err(RepoError::RevisionNotFound(_))));
+    }
+
+    #[test]
+    fn test_format_commit_hash_short() {
+        let hash = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let result = format_commit_hash(hash, false);
+        assert_eq!(result, "a1b2c3d");
+        assert_eq!(result.len(), DEFAULT_SHORT_HASH_LEN);
+    }
+
+    #[test]
+    fn test_format_commit_hash_full() {
+        let hash = "a1b2c3d4e5f67890123456789012345678901234567890123456789012345678";
+        let result = format_commit_hash(hash, true);
+        assert_eq!(result, hash);
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn test_format_commit_hash_already_short() {
+        let hash = "abc123";
+        let result = format_commit_hash(hash, false);
+        assert_eq!(result, hash);
+    }
+
+    // Helper function to create commits with specific hash prefixes
+    fn create_test_commit_with_hash(repo_dir: &Path, hash: &str, parent: Option<&str>) {
+        let gfs_dir = repo_dir.join(GFS_DIR);
+        let objects_dir = gfs_dir.join(OBJECTS_DIR);
+        let (dir, file) = hash.split_at(2);
+        fs::create_dir_all(objects_dir.join(dir)).unwrap();
+
+        let commit = Commit {
+            hash: Some(hash.to_string()),
+            message: "Test commit".to_string(),
+            timestamp: Utc::now(),
+            parents: parent.map(|p| vec![p.to_string()]),
+            snapshot_hash: "snap".to_string(),
+            author: "test".into(),
+            author_email: None,
+            author_date: Utc::now(),
+            committer: "test".into(),
+            committer_email: None,
+            committer_date: Utc::now(),
+            schema_hash: None,
+            database_provider: None,
+            database_version: None,
+            files_added: None,
+            files_deleted: None,
+            files_modified: None,
+            files_renamed: None,
+            files_ref: None,
+            files_count: None,
+            snapshot_size_bytes: None,
+            blocks_added: None,
+            blocks_deleted: None,
+            db_objects_added: None,
+            db_objects_deleted: None,
+            db_objects_modified: None,
+        };
+
+        let commit_json = serde_json::to_string_pretty(&commit).unwrap();
+        fs::write(objects_dir.join(dir).join(file), commit_json).unwrap();
+    }
+
+    #[test]
+    fn test_rev_parse_ambiguous_short_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_dir = temp_dir.path().join("repo");
+        init_repo_layout(&repo_dir, None).unwrap();
+
+        // Create two commits with same prefix
+        let hash1 = "abc1234567890000000000000000000000000000000000000000000000000000";
+        let hash2 = "abc1234567890111111111111111111111111111111111111111111111111111";
+
+        create_test_commit_with_hash(&repo_dir, hash1, None);
+        create_test_commit_with_hash(&repo_dir, hash2, Some(hash1));
+
+        // Try to resolve with ambiguous prefix
+        let result = rev_parse(&repo_dir, "abc12345");
+        assert!(matches!(result, Err(RepoError::AmbiguousShortHash { .. })));
+
+        // Check error message contains both hashes
+        if let Err(RepoError::AmbiguousShortHash { prefix, matches }) = result {
+            assert_eq!(prefix, "abc12345");
+            assert_eq!(matches.len(), 2);
+            assert!(matches.contains(&hash1.to_string()));
+            assert!(matches.contains(&hash2.to_string()));
+        }
     }
 }

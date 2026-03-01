@@ -118,3 +118,69 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_load_none_returns_defaults() {
+        let config = Config::load(None).unwrap();
+        assert!(!config.node.id.is_empty() || config.node.id == "unknown");
+        assert_eq!(config.control_plane.otel_logs_endpoint, "http://localhost:7281");
+        assert!(config.control_plane.otel_metrics_endpoint.contains("7280"));
+        assert_eq!(config.metrics.interval_secs, 5);
+    }
+
+    #[test]
+    fn config_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[node]
+id = "test-node"
+region = "eu-west-1"
+
+[control_plane]
+otel_logs_endpoint = "http://logs:7281"
+otel_traces_endpoint = "http://traces:7281"
+otel_metrics_endpoint = "http://metrics:7280"
+
+[metrics]
+interval_secs = 10
+"#,
+        )
+        .unwrap();
+
+        let config = Config::from_file(&path).unwrap();
+        assert_eq!(config.node.id, "test-node");
+        assert_eq!(config.node.region, "eu-west-1");
+        assert_eq!(config.control_plane.otel_logs_endpoint, "http://logs:7281");
+        assert_eq!(config.metrics.interval_secs, 10);
+    }
+
+    #[test]
+    fn config_load_with_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[node]\nid = \"loaded\"\n").unwrap();
+
+        let config = Config::load(Some(&path)).unwrap();
+        assert_eq!(config.node.id, "loaded");
+    }
+
+    #[test]
+    fn config_from_file_missing() {
+        let result = Config::from_file(Path::new("/nonexistent/config.toml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn config_default_section_defaults() {
+        let config = Config::default();
+        assert_eq!(config.metrics.interval_secs, 5);
+        assert!(config.control_plane.otel_logs_endpoint.contains("7281"));
+    }
+}

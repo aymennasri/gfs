@@ -12,6 +12,7 @@ use gfs_domain::ports::storage::StoragePort;
 use gfs_domain::usecases::repository::commit_repo_usecase::CommitRepoUseCase;
 
 use crate::cli_utils::get_repo_dir;
+use crate::output::{cyan, dimmed};
 
 // ---------------------------------------------------------------------------
 // Entry point called from main
@@ -83,5 +84,5 @@ async fn run(
 
 fn print_commit_result(branch: &str, hash: &str, message: &str) {
     let short = &hash[..7.min(hash.len())];
-    println!("[{branch}] {short}  {message}");
+    println!("[{}] {}  {}", cyan(branch), dimmed(short), message);
 }

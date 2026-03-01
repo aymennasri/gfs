@@ -68,3 +68,96 @@ impl GfsConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::model::layout::GFS_DIR;
+
+    #[test]
+    fn config_load_and_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let gfs_dir = dir.path().join(GFS_DIR);
+        std::fs::create_dir_all(&gfs_dir).unwrap();
+
+        let config = GfsConfig {
+            mount_point: Some("/mnt".into()),
+            version: "1".into(),
+            description: "test".into(),
+            user: Some(UserConfig {
+                name: Some("Alice".into()),
+                email: Some("alice@example.com".into()),
+            }),
+            environment: Some(EnvironmentConfig {
+                database_provider: "postgres".into(),
+                database_version: "17".into(),
+            }),
+            runtime: Some(RuntimeConfig {
+                runtime_provider: "docker".into(),
+                runtime_version: "24".into(),
+                container_name: "c1".into(),
+            }),
+        };
+        config.save(dir.path()).unwrap();
+
+        let loaded = GfsConfig::load(dir.path()).unwrap();
+        assert_eq!(loaded.mount_point, config.mount_point);
+        assert_eq!(loaded.version, config.version);
+        assert_eq!(loaded.environment.as_ref().unwrap().database_provider, "postgres");
+        assert_eq!(loaded.runtime.as_ref().unwrap().container_name, "c1");
+    }
+
+    #[test]
+    fn config_load_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = GfsConfig::load(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn config_load_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let gfs_dir = dir.path().join(GFS_DIR);
+        std::fs::create_dir_all(&gfs_dir).unwrap();
+        std::fs::write(gfs_dir.join(CONFIG_FILE), "invalid toml [[[").unwrap();
+        let result = GfsConfig::load(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn user_config_default() {
+        let uc = UserConfig::default();
+        assert!(uc.name.is_none());
+        assert!(uc.email.is_none());
+    }
+
+    #[test]
+    fn config_save_error_no_parent_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = GfsConfig {
+            mount_point: None,
+            version: "1".into(),
+            description: "test".into(),
+            user: None,
+            environment: None,
+            runtime: None,
+        };
+        // Pass path where .gfs does not exist; save writes to repo_path/.gfs/config.toml
+        let result = config.save(dir.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn runtime_config_display() {
+        let r = RuntimeConfig {
+            runtime_provider: "docker".into(),
+            runtime_version: "24".into(),
+            container_name: "abc123".into(),
+        };
+        let s = r.to_string();
+        assert!(s.contains("docker"));
+        assert!(s.contains("24"));
+        assert!(s.contains("abc123"));
+    }
+}

@@ -64,7 +64,7 @@ a:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem 0;
+    padding: 0.75rem 0;
 }
 
 .logo {
@@ -76,7 +76,7 @@ a:hover {
 }
 
 .logo-img {
-    height: 40px;
+    height: 32px;
     width: auto;
     transition: opacity 0.2s ease;
 }
@@ -150,6 +150,19 @@ a:hover {
     display: inline-block;
 }
 
+.hero-more-link {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: #ffcb51;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+}
+
+.hero-more-link:hover {
+    opacity: 0.85;
+}
+
 .hero-subtitle {
     font-size: 1.25rem;
     color: var(--text-secondary);
@@ -157,11 +170,48 @@ a:hover {
     line-height: 1.8;
 }
 
+.hero-badges-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.hero-badges-label {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
 .hero-badges {
     display: flex;
-    gap: 1rem;
+    gap: 1.25rem;
     justify-content: center;
     flex-wrap: wrap;
+    align-items: center;
+}
+
+.hero-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.hero-badge:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+
+.hero-badge-img {
+    height: 28px;
+    width: auto;
+    max-width: 32px;
+    object-fit: contain;
 }
 
 .badge {
@@ -244,10 +294,92 @@ a:hover {
     line-height: 1.6;
 }
 
+/* Schema diff tabs (docs) */
+.schema-diff-tabs {
+    max-width: 800px;
+    margin: 1.5rem 0;
+    background-color: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.schema-diff-tabs .tabs-header {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background-color: var(--bg-tertiary);
+}
+
+.schema-diff-tabs .tabs-content {
+    padding: 1.5rem;
+}
+
+.schema-diff-tabs .tab-panel .tab-use-case {
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.schema-diff-tabs .tab-panel h4 {
+    margin: 1rem 0 0.5rem;
+    font-size: 1rem;
+}
+
+.schema-diff-tabs .tab-panel h4:first-of-type {
+    margin-top: 0;
+}
+
+.schema-diff-tabs .example-output {
+    margin-top: 0.5rem;
+    padding: 1rem;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.schema-diff-tabs .example-output code {
+    background: none;
+    padding: 0;
+}
+
 /* Video Section */
 .video-section {
     padding: 6rem 0;
     background-color: var(--bg-secondary);
+}
+
+.video-showcase-tabs {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.video-showcase-content {
+    padding-top: 1.5rem;
+}
+
+.video-showcase-panel {
+    animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.video-showcase-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.video-showcase-description {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
 }
 
 .video-container {
@@ -273,7 +405,7 @@ a:hover {
 
 .features-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 2rem;
     margin-top: 3rem;
 }
@@ -315,47 +447,69 @@ a:hover {
 }
 
 .workflow-steps {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
     margin-top: 3rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+    min-width: min-content;
 }
 
 .workflow-step {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    text-align: left;
+    margin-left: 0;
+    min-width: min-content;
+    flex-shrink: 0;
 }
 
+.workflow-step:nth-child(1) { margin-left: 0; }
+.workflow-step:nth-child(2) { margin-left: 2rem; }
+.workflow-step:nth-child(3) { margin-left: 4rem; }
+.workflow-step:nth-child(4) { margin-left: 6rem; }
+
 .step-number {
-    width: 50px;
-    height: 50px;
-    margin: 0 auto 1rem;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    margin: 0;
     background-color: var(--accent);
     color: var(--bg-primary);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
+    font-size: 1.1rem;
     font-weight: 700;
 }
 
 .workflow-step h3 {
-    font-size: 1.25rem;
-    margin-bottom: 1rem;
+    font-size: 1rem;
+    margin: 0;
+    min-width: 6rem;
+    flex-shrink: 0;
 }
 
 .workflow-step pre {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
     background-color: var(--code-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
     text-align: left;
     overflow-x: auto;
+    white-space: nowrap;
 }
 
 .workflow-step code {
     font-size: 0.85rem;
     color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 /* CTA Section */
@@ -634,6 +788,13 @@ a:hover {
     margin-bottom: 0.5rem;
 }
 
+.docs-content .docs-screenshot {
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin: 1.5rem 0;
+}
+
 /* CodeBlock Component */
 .code-block-wrapper {
     position: relative;
@@ -786,8 +947,7 @@ a:hover {
         font-size: 1.1rem;
     }
 
-    .features-grid,
-    .workflow-steps {
+    .features-grid {
         grid-template-columns: 1fr;
     }
 

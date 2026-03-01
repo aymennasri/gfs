@@ -153,6 +153,437 @@ fn paths_differ(a: &str, b: &str) -> bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+
+    use crate::model::config::{EnvironmentConfig, RuntimeConfig};
+    use crate::ports::compute::{
+        Compute, ComputeDefinition, InstanceId, InstanceState, InstanceStatus, StartOptions,
+    };
+    use crate::ports::database_provider::{
+        ConnectionParams, DatabaseProvider, DatabaseProviderArg, DatabaseProviderRegistry,
+        ProviderError, Result as RegistryResult, SIGTERM, SupportedFeature,
+    };
+    use crate::ports::repository::Repository;
+
+    struct MockRepository {
+        current_branch: String,
+        environment: Option<EnvironmentConfig>,
+        runtime: Option<RuntimeConfig>,
+        active_workspace_data_dir: Option<PathBuf>,
+    }
+
+    #[async_trait]
+    impl Repository for MockRepository {
+        async fn init(
+            &self,
+            _: &std::path::Path,
+            _: Option<String>,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn get_workspace_data_dir_for_head(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<PathBuf> {
+            Ok(PathBuf::from("/workspace/data"))
+        }
+        async fn update_environment_config(
+            &self,
+            _: &std::path::Path,
+            _: EnvironmentConfig,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn update_runtime_config(
+            &self,
+            _: &std::path::Path,
+            _: RuntimeConfig,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn clone_repo(
+            &self,
+            _: &str,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn commit(
+            &self,
+            _: &std::path::Path,
+            _: crate::model::commit::NewCommit,
+        ) -> crate::ports::repository::Result<String> {
+            Ok(String::new())
+        }
+        async fn checkout(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn create_branch(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+            _: &str,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn log(
+            &self,
+            _: &std::path::Path,
+            _: crate::ports::repository::LogOptions,
+        ) -> crate::ports::repository::Result<Vec<crate::model::commit::CommitWithRefs>> {
+            Ok(vec![])
+        }
+        async fn rev_parse(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+        ) -> crate::ports::repository::Result<String> {
+            Ok(String::new())
+        }
+        async fn push(
+            &self,
+            _: &std::path::Path,
+            _: crate::ports::repository::RemoteOptions,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn pull(
+            &self,
+            _: &std::path::Path,
+            _: crate::ports::repository::RemoteOptions,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn fetch(
+            &self,
+            _: &std::path::Path,
+            _: crate::ports::repository::RemoteOptions,
+        ) -> crate::ports::repository::Result<()> {
+            Ok(())
+        }
+        async fn get_current_branch(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<String> {
+            Ok(self.current_branch.clone())
+        }
+        async fn get_current_commit_id(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<String> {
+            Ok("0".into())
+        }
+        async fn get_runtime_config(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<Option<RuntimeConfig>> {
+            Ok(self.runtime.clone())
+        }
+        async fn get_mount_point(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<Option<String>> {
+            Ok(None)
+        }
+        async fn get_environment_config(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<Option<EnvironmentConfig>> {
+            Ok(self.environment.clone())
+        }
+        async fn get_user_config(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<Option<crate::model::config::UserConfig>> {
+            Ok(None)
+        }
+        async fn ensure_snapshot_path(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+        ) -> crate::ports::repository::Result<PathBuf> {
+            Ok(PathBuf::from("/tmp/snap"))
+        }
+        async fn get_active_workspace_data_dir(
+            &self,
+            _: &std::path::Path,
+        ) -> crate::ports::repository::Result<PathBuf> {
+            Ok(self
+                .active_workspace_data_dir
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("/workspace/data")))
+        }
+    }
+
+    struct MockCompute;
+
+    #[async_trait]
+    impl Compute for MockCompute {
+        async fn provision(
+            &self,
+            _: &ComputeDefinition,
+        ) -> crate::ports::compute::Result<InstanceId> {
+            Ok(InstanceId("mock".into()))
+        }
+        async fn start(
+            &self,
+            id: &InstanceId,
+            _: StartOptions,
+        ) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Running,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn stop(&self, id: &InstanceId) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Stopped,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn restart(&self, id: &InstanceId) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Running,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn status(&self, id: &InstanceId) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Running,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn prepare_for_snapshot(
+            &self,
+            _: &InstanceId,
+            _: &[String],
+        ) -> crate::ports::compute::Result<()> {
+            Ok(())
+        }
+        async fn logs(
+            &self,
+            _: &InstanceId,
+            _: crate::ports::compute::LogsOptions,
+        ) -> crate::ports::compute::Result<Vec<crate::ports::compute::LogEntry>> {
+            Ok(vec![])
+        }
+        async fn pause(&self, id: &InstanceId) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Paused,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn unpause(&self, id: &InstanceId) -> crate::ports::compute::Result<InstanceStatus> {
+            Ok(InstanceStatus {
+                id: id.clone(),
+                state: InstanceState::Running,
+                pid: None,
+                started_at: None,
+                exit_code: None,
+            })
+        }
+        async fn get_connection_info(
+            &self,
+            _id: &InstanceId,
+            port: u16,
+        ) -> crate::ports::compute::Result<crate::ports::compute::InstanceConnectionInfo> {
+            Ok(crate::ports::compute::InstanceConnectionInfo {
+                host: "127.0.0.1".into(),
+                port,
+                env: vec![],
+            })
+        }
+        async fn get_instance_data_mount_host_path(
+            &self,
+            _id: &InstanceId,
+            _: &str,
+        ) -> crate::ports::compute::Result<Option<PathBuf>> {
+            Ok(None)
+        }
+        async fn remove_instance(&self, _id: &InstanceId) -> crate::ports::compute::Result<()> {
+            Ok(())
+        }
+        async fn get_task_connection_info(
+            &self,
+            _id: &InstanceId,
+            port: u16,
+        ) -> crate::ports::compute::Result<crate::ports::compute::InstanceConnectionInfo> {
+            Ok(crate::ports::compute::InstanceConnectionInfo {
+                host: "172.17.0.2".into(),
+                port,
+                env: vec![],
+            })
+        }
+        async fn run_task(
+            &self,
+            _: &ComputeDefinition,
+            _: &str,
+            _: Option<&InstanceId>,
+        ) -> crate::ports::compute::Result<crate::ports::compute::ExecOutput> {
+            Ok(crate::ports::compute::ExecOutput {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        }
+    }
+
+    struct MockProvider;
+
+    impl DatabaseProvider for MockProvider {
+        fn name(&self) -> &str {
+            "postgres"
+        }
+        fn definition(&self) -> ComputeDefinition {
+            ComputeDefinition {
+                image: "postgres:17".into(),
+                env: vec![],
+                ports: vec![],
+                data_dir: PathBuf::from("/data"),
+                host_data_dir: None,
+                logs_dir: None,
+                conf_dir: None,
+                args: vec![],
+            }
+        }
+        fn default_port(&self) -> u16 {
+            5432
+        }
+        fn default_args(&self) -> Vec<DatabaseProviderArg> {
+            vec![]
+        }
+        fn default_signal(&self) -> u32 {
+            SIGTERM
+        }
+        fn connection_string(
+            &self,
+            _: &ConnectionParams,
+        ) -> std::result::Result<String, ProviderError> {
+            Ok("postgres://localhost:5432".into())
+        }
+        fn supported_versions(&self) -> Vec<String> {
+            vec!["17".into()]
+        }
+        fn supported_features(&self) -> Vec<SupportedFeature> {
+            vec![]
+        }
+        fn prepare_for_snapshot(&self, _: &ConnectionParams) -> RegistryResult<Vec<String>> {
+            Ok(vec![])
+        }
+        fn query_client_command(
+            &self,
+            _: &ConnectionParams,
+            _: Option<&str>,
+        ) -> std::result::Result<std::process::Command, ProviderError> {
+            Ok(std::process::Command::new("true"))
+        }
+    }
+
+    struct MockRegistry;
+
+    impl DatabaseProviderRegistry for MockRegistry {
+        fn register(&self, _: Arc<dyn DatabaseProvider>) -> RegistryResult<()> {
+            Ok(())
+        }
+        fn get(&self, name: &str) -> Option<Arc<dyn DatabaseProvider>> {
+            if name.eq_ignore_ascii_case("postgres") {
+                Some(Arc::new(MockProvider))
+            } else {
+                None
+            }
+        }
+        fn list(&self) -> Vec<String> {
+            vec!["postgres".into()]
+        }
+        fn unregister(&self, _: &str) -> Option<Arc<dyn DatabaseProvider>> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn status_no_compute() {
+        let repo = MockRepository {
+            current_branch: "main".into(),
+            environment: None,
+            runtime: None,
+            active_workspace_data_dir: None,
+        };
+        let usecase = StatusRepoUseCase::new(
+            Arc::new(repo),
+            Arc::new(MockCompute),
+            Arc::new(MockRegistry),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let result = usecase.run(dir.path()).await;
+        assert!(result.is_ok());
+        let status = result.unwrap();
+        assert_eq!(status.current_branch, "main");
+        assert!(status.compute.is_none());
+    }
+
+    #[tokio::test]
+    async fn status_with_compute() {
+        let repo = MockRepository {
+            current_branch: "main".into(),
+            environment: Some(EnvironmentConfig {
+                database_provider: "postgres".into(),
+                database_version: "17".into(),
+            }),
+            runtime: Some(RuntimeConfig {
+                runtime_provider: "docker".into(),
+                runtime_version: "24".into(),
+                container_name: "container-1".into(),
+            }),
+            active_workspace_data_dir: Some(PathBuf::from("/workspace/data")),
+        };
+        let usecase = StatusRepoUseCase::new(
+            Arc::new(repo),
+            Arc::new(MockCompute),
+            Arc::new(MockRegistry),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let result = usecase.run(dir.path()).await;
+        assert!(result.is_ok());
+        let status = result.unwrap();
+        assert_eq!(status.current_branch, "main");
+        let compute = status.compute.unwrap();
+        assert_eq!(compute.provider, "postgres");
+        assert_eq!(compute.version, "17");
+        assert_eq!(compute.container_id, "container-1");
+        assert_eq!(compute.container_status, "running");
+    }
+}
+
 async fn get_data_bind_host_path<R: DatabaseProviderRegistry>(
     compute: &dyn Compute,
     registry: &R,

@@ -150,3 +150,53 @@ pub trait StoragePort: Send + Sync {
     /// Return disk-usage quota information for a volume.
     async fn quota(&self, id: &VolumeId) -> Result<Quota>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_id_display() {
+        let id = VolumeId("vol-1".into());
+        assert_eq!(id.to_string(), "vol-1");
+    }
+
+    #[test]
+    fn snapshot_id_display() {
+        let id = SnapshotId("snap-1".into());
+        assert_eq!(id.to_string(), "snap-1");
+    }
+
+    #[test]
+    fn storage_error_display() {
+        assert_eq!(
+            StorageError::NotFound("v1".into()).to_string(),
+            "volume not found: 'v1'"
+        );
+        assert_eq!(
+            StorageError::AlreadyExists("v2".into()).to_string(),
+            "volume already exists: 'v2'"
+        );
+        assert_eq!(
+            StorageError::Busy("v3".into()).to_string(),
+            "volume is busy: 'v3'"
+        );
+        assert_eq!(
+            StorageError::SnapshotNotFound("s1".into()).to_string(),
+            "snapshot not found: 's1'"
+        );
+        assert_eq!(
+            StorageError::QuotaExceeded {
+                volume: "v".into(),
+                used_bytes: 100,
+                limit_bytes: 50,
+            }
+            .to_string(),
+            "quota exceeded on 'v': used 100 / 50 bytes"
+        );
+        assert_eq!(
+            StorageError::Internal("err".into()).to_string(),
+            "internal error: err"
+        );
+    }
+}

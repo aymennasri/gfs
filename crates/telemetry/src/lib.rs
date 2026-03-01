@@ -31,3 +31,16 @@ pub fn init() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_does_not_panic() {
+        // init() sets a global subscriber - can only be called once per process.
+        // This test verifies the compact (default) path runs without panicking.
+        init();
+        // If we get here, init() did not panic.
+    }
+}

@@ -116,8 +116,27 @@ jobs:
             ${{ matrix.archive_name }}
             ${{ matrix.archive_name }}.sha256
 
+  build-ai-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create AI tools archive
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          tar czf gfs-ai-tools-${VERSION}.tar.gz skills agents
+          sha256sum gfs-ai-tools-${VERSION}.tar.gz > gfs-ai-tools-${VERSION}.tar.gz.sha256
+
+      - name: Upload AI tools artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: gfs-ai-tools
+          path: |
+            gfs-ai-tools-*.tar.gz
+            gfs-ai-tools-*.tar.gz.sha256
+
   release:
-    needs: build
+    needs: [build, build-ai-tools]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -156,6 +175,10 @@ jobs:
             - **Linux ARM64**: `gfs-linux-arm64.tar.gz`
             - **macOS x86_64**: `gfs-darwin-x64.zip`
             - **macOS ARM64**: `gfs-darwin-arm64.zip`
+
+            ### AI Tools (Cursor, Claude, OpenCode)
+
+            The `gfs-ai-tools-*.tar.gz` asset contains skills and agents for AI coding tools. The installer script injects these automatically when Cursor, Claude, or OpenCode are detected.
 
             ### Installation
 

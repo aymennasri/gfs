@@ -11,7 +11,7 @@ pub fn Faq() -> impl IntoView {
     let faqs = vec![
         FaqItem {
             question: "What databases does GFS support?",
-            answer: "GFS currently supports PostgreSQL (versions 13-18) and MySQL (versions 8.0-8.1). More database providers are coming soon.",
+            answer: "GFS currently supports PostgreSQL (versions 13-18) and MySQL (versions 8.0-8.1).",
         },
         FaqItem {
             question: "Is GFS ready for production?",

@@ -1,0 +1,3 @@
+[profile.default]
+# Override for tests that need serial execution
+# Run: cargo nextest run -E 'test(e2e_checkout_postgres|import_postgres|schema_extract_postgres)' --no-capture

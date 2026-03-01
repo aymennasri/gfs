@@ -1,4 +1,15 @@
 [alias]
-gfs = ["run", "--bin", "guepard-data-plane-cli"]
-gfs-mcp = ["run", "--bin", "guepard-data-plane-mcp"]
-gfs-mcp2 = ["run", "--bin", "guepard-data-plane-mcp2"]
+gfs = ["run", "--bin", "gfs-cli"]
+gfs-mcp = ["run", "--bin", "gfs-mcp"]
+# Full test suite including E2E (e2e_checkout_postgres on macOS); requires --test-threads=1
+test-all = ["test", "--", "--test-threads=1"]
+# CLI tests (e2e, import, schema) must run single-threaded to share state
+test-cli = ["test", "-p", "gfs-cli", "--", "--test-threads=1"]
+# Shorthand for cargo nextest run (install: cargo install cargo-nextest)
+nt = ["nextest", "run"]
+# Coverage report (excludes website from report)
+cov = ["llvm-cov", "--open", "--exclude-from-report", "gfs-website", "--", "--test-threads=1"]
+
+[llvm-cov]
+# Exclude tests, benches, website, and binary entry points from coverage
+ignore-filename-regex = "tests/|benches/|applications/website/|applications/cli/src/main\\.rs|applications/mcp/src/main\\.rs"

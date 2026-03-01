@@ -141,6 +141,40 @@ mod tests {
     }
 
     #[test]
+    fn test_get_head_neither_ref_nor_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        let working_dir = temp_dir.path().to_path_buf();
+        fs::create_dir_all(working_dir.join(GFS_DIR)).unwrap();
+        fs::write(
+            working_dir.join(GFS_DIR).join(HEAD_FILE),
+            "ref: refs/heads",
+        )
+        .unwrap();
+        let result = get_head(&working_dir).unwrap();
+        assert_eq!(result, "ref: refs/heads");
+    }
+
+    #[test]
+    fn test_get_head_commit_hash_returns_none_for_non_hash() {
+        let temp_dir = TempDir::new().unwrap();
+        let working_dir = temp_dir.path().to_path_buf();
+        fs::create_dir_all(working_dir.join(GFS_DIR)).unwrap();
+        fs::write(
+            working_dir.join(GFS_DIR).join(HEAD_FILE),
+            format!("ref: {}/{}/main", REFS_DIR, HEADS_DIR),
+        )
+        .unwrap();
+        fs::create_dir_all(working_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR)).unwrap();
+        fs::write(
+            working_dir.join(GFS_DIR).join(REFS_DIR).join(HEADS_DIR).join("main"),
+            "0",
+        )
+        .unwrap();
+        let result = get_head_commit_hash(&working_dir).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
     fn test_get_head_error() {
         let temp_dir = TempDir::new().unwrap();
         let working_dir = temp_dir.path().to_path_buf();

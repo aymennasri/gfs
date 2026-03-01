@@ -20,6 +20,7 @@
         <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" />
     </a>
     </p>
+    <img src="resources/GFSShowcase.gif" alt="GFS Showcase" />
 </div>
 
 ## Table of Contents
@@ -60,7 +61,6 @@ GFS uses Docker to manage isolated database environments, making it easy to work
 
 - **PostgreSQL** (versions 13-18)
 - **MySQL** (versions 8.0-8.1)
-- More database providers coming soon
 
 Run `gfs providers` to see all available providers and their supported versions.
 
@@ -72,9 +72,11 @@ Run `gfs providers` to see all available providers and their supported versions.
 - ✅ Checkout previous commits
 - ✅ Create and switch branches
 - ✅ Check database status
-- 🚧 Merge branches (coming soon)
-- 🚧 Remote repositories (coming soon)
-- 🚧 Conflict resolution (coming soon)
+- ✅ Query database directly from CLI (SQL execution and interactive mode)
+- ✅ Schema extraction, show, and diff between commits
+- ✅ Export and import data (SQL, custom, CSV)
+- ✅ Compute container management (start, stop, logs)
+- ✅ Repository config (user.name, user.email)
 
 ## Installation
 
@@ -115,16 +117,29 @@ gfs status
 
 This shows the current state of your storage and compute resources.
 
-### 5. Connect to your database
+### 5. Query your database
 
 ```bash
-# GFS will output the connection details, typically:
-psql -h localhost -p 5432 -U postgres -d postgres
+# Execute a SQL query directly
+gfs query "SELECT 1"
+
+# Or open an interactive terminal session
+gfs query
 ```
 
-Or use any SQL client with the connection details shown by `gfs status`.
-
 ### 6. Make changes and commit
+
+[Example] Create table users
+
+```bash
+gfs query "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+```
+
+[Example] Add data to users
+
+```bash
+gfs query "INSERT INTO users (name) VALUES ('Alice'), ('Bob');"
+```
 
 After modifying your database schema or data:
 
@@ -132,25 +147,39 @@ After modifying your database schema or data:
 gfs commit -m "my first commit"
 ```
 
+Output: `[main] 88b0ff8  my first commit`
+
 ### 7. View commit history
 
 ```bash
 gfs log
 ```
 
-### 8. Make more changes
+### 8. Update the schema
 
-Connect to your database and make additional changes:
+[Example] Add `transactions` table with foreign key to `users`:
 
 ```bash
-psql -h localhost -p 5432 -U postgres -d postgres
-# Make your changes...
+gfs query "CREATE TABLE transactions (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), amount NUMERIC NOT NULL, created_at TIMESTAMP DEFAULT NOW());"
 ```
 
-Then commit again:
+[Example] Add data to `transactions`:
+
+```bash
+gfs query "INSERT INTO transactions (user_id, amount) VALUES (1, 100.50), (2, 25.00);"
+```
 
 ```bash
 gfs commit -m "my second commit"
+```
+
+### 8. Make more changes
+
+Use `gfs query` to run SQL or open an interactive session, then commit:
+
+```bash
+gfs query "ALTER TABLE users ADD COLUMN email TEXT;"
+gfs commit -m "my third commit"
 ```
 
 ### 9. Time travel through history
@@ -185,6 +214,24 @@ gfs checkout main
 
 ## Command Reference
 
+### Revision References
+
+GFS supports Git-style revision notation for referencing commits in commands like `checkout`, `schema show`, and `schema diff`:
+
+- `HEAD` - Current commit
+- `main` - Branch tip (any branch name)
+- `abc123...` - Full commit hash (64 characters)
+- `HEAD~1` - Parent of HEAD (previous commit)
+- `HEAD~5` - 5th ancestor of HEAD
+- `main~3` - 3 commits before main branch tip
+
+Examples:
+```bash
+gfs checkout HEAD~1                    # Checkout previous commit
+gfs schema diff HEAD~5 HEAD           # Compare schema with 5 commits ago
+gfs schema show main~3                # View schema from 3 commits back
+```
+
 ### `gfs providers`
 
 List available database providers and their supported versions.
@@ -204,6 +251,24 @@ gfs providers postgres
   ---------------------+--------------------------------+---------------------------------------------------
   mysql                | 8.0, 8.1                       | tls, schema, masking, backup, import
   postgres             | 13, 14, 15, 16, 17, 18         | tls, schema, masking, auto-scaling, performance...
+
+  Images are pulled from Docker Hub by default.
+```
+
+For provider details (e.g. `gfs providers postgres`):
+
+```
+  Provider: postgres
+
+  Supported versions: 13, 14, 15, 16, 17, 18
+
+  Features
+  ─────────────────────────────────────────────────────────────────────────────────────
+  feature                   | description
+  --------------------------+--------------------------------------------------------
+  tls                       | TLS/SSL encryption for connections.
+  schema                    | Schema and DDL management.
+  ...
 ```
 
 Use this command to check available providers before initializing a repository.
@@ -226,6 +291,26 @@ Show the current state of storage and compute resources.
 
 ```bash
 gfs status
+# Or JSON output:
+gfs status --output json
+```
+
+**Example output:**
+
+```
+  Repository
+  ────────────────────────────────────────
+  Branch               main
+  Active workspace     .gfs/workspaces/main/0/data
+
+  Compute
+  ────────────────────────────────────────
+  Provider             postgres
+  Version              17
+  Status               ● running
+  Container ID         37f65464d421…
+  Container data dir   .gfs/workspaces/main/0/data
+  Connection           postgresql://postgres:postgres@localhost:55251/postgres
 ```
 
 ### `gfs commit`
@@ -234,6 +319,12 @@ Commit the current database state.
 
 ```bash
 gfs commit -m "commit message"
+```
+
+**Example output:**
+
+```
+[main] 88b0ff8  Add users table
 ```
 
 **Options:**
@@ -245,6 +336,18 @@ Show the commit history.
 
 ```bash
 gfs log
+gfs log -n 10                    # Limit to 10 commits
+gfs log --full-hash              # Show full 64-char hashes
+```
+
+**Example output:**
+
+```
+commit 88b0ff8 (HEAD -> main, main)
+Author: user
+Date:   Sun Mar  1 12:56:43 2026 +0000
+
+    Add users table
 ```
 
 ### `gfs checkout`
@@ -262,12 +365,107 @@ gfs checkout -b <branch_name>
 gfs checkout <branch_name>
 ```
 
+**Example output:**
+
+```
+Switched to new branch 'feature-test' (88b0ff8)
+Switched to main (88b0ff8)
+```
+
 **Options:**
 - `-b`: Create a new branch
 
-### `gfs branch`
+### `gfs query`
 
-List, create, or delete branches (coming soon).
+Execute SQL queries or open an interactive database terminal.
+
+```bash
+# Execute a SQL query
+gfs query "SELECT * FROM users WHERE id = 1"
+
+# Open interactive terminal (omit the query)
+gfs query
+```
+
+**Example output (for `gfs query "SELECT 1"`):**
+
+```
+ ?column?
+----------
+        1
+(1 row)
+```
+
+**Options:**
+- `--database`: Override the default database name
+- `--path`: Path to the GFS repository root
+
+### `gfs schema`
+
+Database schema operations: extract, show, and diff.
+
+```bash
+# Extract schema from the running database
+gfs schema extract [--output <file>] [--compact]
+
+# Show schema from a specific commit
+gfs schema show <commit> [--metadata-only] [--ddl-only]
+
+# Compare schemas between two commits
+gfs schema diff <commit1> <commit2> [--pretty] [--json]
+```
+
+**Options:**
+- `extract`: Schema from the running database (JSON output)
+- `show`: Schema from a historical commit
+- `diff`: Compare two commits (agentic format by default; `--pretty` for human-readable; `--json` for structured output)
+
+### `gfs export`
+
+Export data from the running database to a file.
+
+```bash
+gfs export --output-dir <dir> --format <fmt>
+```
+
+**Options:**
+- `--output-dir`: Directory where the export file will be written
+- `--format`: Export format (`sql` for plain-text SQL, `custom` for PostgreSQL binary dump)
+
+### `gfs import`
+
+Import data from a file into the running database.
+
+```bash
+gfs import --file <path> [--format <fmt>]
+```
+
+**Options:**
+- `--file`: Path to the dump file (`.sql`, `.dump`, or `.csv`)
+- `--format`: Import format (inferred from file extension when omitted)
+
+### `gfs config`
+
+Read or write repository config (e.g. `user.name`, `user.email`).
+
+```bash
+# Read a config value
+gfs config user.name
+
+# Set a config value
+gfs config user.name "John Doe"
+```
+
+### `gfs compute`
+
+Manage the database container (start, stop, status, logs).
+
+```bash
+gfs compute start    # Start the container
+gfs compute stop     # Stop the container
+gfs compute status   # Show container status
+gfs compute logs     # View container logs (--tail, --since options)
+```
 
 ## MCP Server
 
@@ -439,6 +637,17 @@ Run all tests:
 cargo test
 ```
 
+On macOS, the full suite (including E2E checkout tests) requires sequential execution. Use either:
+
+```bash
+cargo test-all
+# or
+RUST_TEST_THREADS=1 cargo test
+
+#or generate coverage report
+cargo cov
+```
+
 Run specific tests:
 
 ```bash
@@ -450,6 +659,11 @@ Run tests with output:
 ```bash
 cargo test -- --nocapture
 ```
+
+**Optional: Better test reports and code coverage**
+
+- [cargo-nextest](https://nexte.st/): Faster, clearer test output. Install with `cargo install cargo-nextest`, then run `cargo nextest run` or `cargo nt`.
+- [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov): Code coverage. Install with `cargo install cargo-llvm-cov` (requires `rustup component add llvm-tools-preview`). Run `cargo llvm-cov --html --open` for an HTML report.
 
 ### Building for release
 
@@ -479,16 +693,7 @@ For quick questions, join our [Discord community](https://discord.gg/SEdZuJbc5V)
 
 ## Roadmap
 
-- [ ] Merge branch functionality
-- [ ] Remote repository support (push/pull)
-- [ ] Conflict resolution tools
-- [ ] Support for MongoDB
-- [ ] Support for SQLite
-- [ ] Support for MariaDB
-- [ ] Web UI for visualization
-- [ ] CI/CD integrations
-- [ ] Diff visualization tools
-- [ ] Branch comparison and diff
+Check [Roadmap](ROADMAP.md)
 
 ## License
 

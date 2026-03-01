@@ -36,7 +36,7 @@ pub fn CodeTabs() -> impl IntoView {
                                 <CodeBlock code="curl -fsSL https://gfs.guepard.run/install | bash".to_string()/>
                             }.into_view(),
                             "brew" => view! {
-                                <CodeBlock code="# Coming soon\nbrew install guepard-corp/tap/gfs".to_string()/>
+                                <CodeBlock code="brew install guepard-corp/tap/gfs".to_string()/>
                             }.into_view(),
                             "cargo" => view! {
                                 <CodeBlock code="# Build from source\ngit clone https://github.com/Guepard-Corp/gfs.git\ncd gfs\ncargo build --release".to_string()/>
